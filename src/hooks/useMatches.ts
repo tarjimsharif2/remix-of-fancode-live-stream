@@ -20,20 +20,26 @@ export const useMatches = () => {
       }
 
       if (data?.success && data.matches) {
-        const formattedMatches: Match[] = data.matches.map((m, index) => ({
-          id: m.match_id?.toString() || `match-${index}`,
-          team1: m.team_1,
-          team2: m.team_2,
-          event: m.event_name,
-          startTime: m.startTime || "Live Now",
-          status: m.status?.toUpperCase() === 'LIVE' ? 'live' as const : 'upcoming' as const,
-          thumbnail: m.src,
-          streamLink: m.adfree_url || m.dai_url, // Prefer adfree_url
-          adfreeLink: m.adfree_url,
-          matchId: m.match_id,
-          title: m.title,
-          category: m.event_category,
-        }));
+        const formattedMatches: Match[] = data.matches.map((m, index) => {
+          const inLink = m.adfree_url || m.dai_url;
+          // Generate BD link by replacing 'in-mc' with 'bd-mc' in the URL
+          const bdLink = inLink ? inLink.replace('in-mc-fdlive', 'bd-mc-fdlive') : undefined;
+          
+          return {
+            id: m.match_id?.toString() || `match-${index}`,
+            team1: m.team_1,
+            team2: m.team_2,
+            event: m.event_name,
+            startTime: m.startTime || "Live Now",
+            status: m.status?.toUpperCase() === 'LIVE' ? 'live' as const : 'upcoming' as const,
+            thumbnail: m.src,
+            streamLinkIN: inLink,
+            streamLinkBD: bdLink,
+            matchId: m.match_id,
+            title: m.title,
+            category: m.event_category,
+          };
+        });
 
         setMatches(formattedMatches);
         setLastUpdated(data.lastUpdated);

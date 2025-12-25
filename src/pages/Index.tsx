@@ -8,16 +8,24 @@ import { Match } from "@/types/match";
 
 const Index = () => {
   const { matches, loading, error, lastUpdated, refetch } = useMatches();
-  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<{ match: Match; region: 'BD' | 'IN' } | null>(null);
 
-  const handleWatch = (match: Match) => {
-    if (match.streamLink) {
-      setSelectedMatch(match);
+  const handleWatch = (match: Match, region: 'BD' | 'IN') => {
+    const streamUrl = region === 'BD' ? match.streamLinkBD : match.streamLinkIN;
+    if (streamUrl) {
+      setSelectedMatch({ match, region });
     }
   };
 
   const handleClosePlayer = () => {
     setSelectedMatch(null);
+  };
+
+  const getStreamUrl = () => {
+    if (!selectedMatch) return '';
+    return selectedMatch.region === 'BD' 
+      ? selectedMatch.match.streamLinkBD 
+      : selectedMatch.match.streamLinkIN;
   };
 
   return (
@@ -35,10 +43,10 @@ const Index = () => {
       </main>
       <Footer />
 
-      {selectedMatch && selectedMatch.streamLink && (
+      {selectedMatch && getStreamUrl() && (
         <VideoPlayer
-          streamUrl={selectedMatch.streamLink}
-          matchName={`${selectedMatch.team1} vs ${selectedMatch.team2}`}
+          streamUrl={getStreamUrl()!}
+          matchName={`${selectedMatch.match.team1} vs ${selectedMatch.match.team2} (${selectedMatch.region})`}
           onClose={handleClosePlayer}
         />
       )}
