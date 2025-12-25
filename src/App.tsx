@@ -17,7 +17,8 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
-          <Route path="/watch/:matchId" element={<Watch />} />
+          <Route path="/fancode/play-bd.php" element={<Watch />} />
+          <Route path="/fancode/play-in.php" element={<Watch />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
