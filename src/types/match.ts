@@ -2,27 +2,30 @@ export interface Match {
   id: string;
   team1: string;
   team2: string;
-  team1Flag?: string;
-  team2Flag?: string;
   event: string;
   startTime: string;
   status: 'live' | 'upcoming';
   thumbnail?: string;
   streamLink?: string;
+  adfreeLink?: string;
   matchId?: number;
+  title?: string;
+  category?: string;
 }
 
 export interface FancodeMatch {
-  event_catagory: string;
-  event_name: string;
-  match_id: number;
-  match_name: string;
+  event_category: string;
+  title: string;
+  src: string;
   team_1: string;
-  team_1_flag: string;
   team_2: string;
-  team_2_flag: string;
-  banner: string;
-  stream_link: string;
+  status: string;
+  event_name: string;
+  match_name: string;
+  match_id: number;
+  startTime: string;
+  dai_url?: string;
+  adfree_url?: string;
 }
 
 export interface FancodeResponse {

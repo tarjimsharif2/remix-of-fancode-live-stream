@@ -24,14 +24,15 @@ export const useMatches = () => {
           id: m.match_id?.toString() || `match-${index}`,
           team1: m.team_1,
           team2: m.team_2,
-          team1Flag: m.team_1_flag,
-          team2Flag: m.team_2_flag,
           event: m.event_name,
-          startTime: "Live Now",
-          status: 'live' as const,
-          thumbnail: m.banner,
-          streamLink: m.stream_link,
+          startTime: m.startTime || "Live Now",
+          status: m.status?.toUpperCase() === 'LIVE' ? 'live' as const : 'upcoming' as const,
+          thumbnail: m.src,
+          streamLink: m.adfree_url || m.dai_url, // Prefer adfree_url
+          adfreeLink: m.adfree_url,
           matchId: m.match_id,
+          title: m.title,
+          category: m.event_category,
         }));
 
         setMatches(formattedMatches);
