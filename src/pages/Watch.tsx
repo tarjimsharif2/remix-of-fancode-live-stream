@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe, RefreshCw, Settings } from "lucide-react";
+import { Globe, RefreshCw, Settings, PictureInPicture2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +17,8 @@ interface QualityLevel {
   label: string;
 }
 
+const AUTO_RETRY_INTERVAL = 10000; // 10 seconds
+
 const Watch = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -29,12 +31,24 @@ const Watch = () => {
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1); // -1 = Auto
   const [showControls, setShowControls] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isPiPSupported, setIsPiPSupported] = useState(false);
+  const [isPiPActive, setIsPiPActive] = useState(false);
+
+  const stopAutoRetry = useCallback(() => {
+    if (retryIntervalRef.current) {
+      clearInterval(retryIntervalRef.current);
+      retryIntervalRef.current = null;
+    }
+  }, []);
 
   const initPlayer = useCallback(async () => {
     if (!playerContainerRef.current || !streamUrl) {
@@ -53,6 +67,7 @@ const Watch = () => {
     setError(null);
     setQualities([]);
     setCurrentQuality(-1);
+    stopAutoRetry();
 
     try {
       const Hls = (await import('hls.js')).default;
@@ -70,6 +85,14 @@ const Watch = () => {
       video.autoplay = true;
       video.playsInline = true;
       playerContainerRef.current?.appendChild(video);
+      videoRef.current = video;
+
+      // Check PiP support
+      setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
+
+      // Listen for PiP events
+      video.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
+      video.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
 
       if (Hls.isSupported()) {
         const hls = new Hls({
@@ -85,6 +108,8 @@ const Watch = () => {
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_event: any, data: any) => {
           setIsLoading(false);
+          setRetryCount(0);
+          stopAutoRetry();
           
           // Extract quality levels
           const levels: QualityLevel[] = data.levels.map((level: any, index: number) => ({
@@ -106,6 +131,7 @@ const Watch = () => {
             console.error('HLS fatal error:', data);
             setError(`Stream unavailable. This stream may be geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
             setIsLoading(false);
+            startAutoRetry();
           }
         });
 
@@ -114,11 +140,14 @@ const Watch = () => {
         video.src = streamUrl;
         video.addEventListener('loadedmetadata', () => {
           setIsLoading(false);
+          setRetryCount(0);
+          stopAutoRetry();
           video.play().catch(() => {});
         });
         video.addEventListener('error', () => {
           setError(`Stream unavailable. This stream may be geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
           setIsLoading(false);
+          startAutoRetry();
         });
       } else {
         setError('HLS playback is not supported in this browser.');
@@ -129,8 +158,17 @@ const Watch = () => {
       console.error('Failed to initialize player:', err);
       setError('Failed to load video player. Please try again.');
       setIsLoading(false);
+      startAutoRetry();
     }
-  }, [streamUrl, region]);
+  }, [streamUrl, region, stopAutoRetry]);
+
+  const startAutoRetry = useCallback(() => {
+    stopAutoRetry();
+    retryIntervalRef.current = setInterval(() => {
+      setRetryCount(prev => prev + 1);
+      initPlayer();
+    }, AUTO_RETRY_INTERVAL);
+  }, [stopAutoRetry, initPlayer]);
 
   const handleQualityChange = (levelIndex: number) => {
     if (hlsRef.current) {
@@ -146,16 +184,31 @@ const Watch = () => {
     }
   };
 
+  const togglePiP = async () => {
+    if (!videoRef.current) return;
+
+    try {
+      if (isPiPActive) {
+        await (document as any).exitPictureInPicture();
+      } else {
+        await (videoRef.current as any).requestPictureInPicture();
+      }
+    } catch (err) {
+      console.error('PiP error:', err);
+    }
+  };
+
   useEffect(() => {
     initPlayer();
 
     return () => {
+      stopAutoRetry();
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
     };
-  }, [initPlayer]);
+  }, [initPlayer, stopAutoRetry]);
 
   // Hide controls after 3 seconds of inactivity
   useEffect(() => {
@@ -181,6 +234,7 @@ const Watch = () => {
   }, []);
 
   const handleRetry = () => {
+    setRetryCount(0);
     initPlayer();
   };
 
@@ -205,59 +259,81 @@ const Watch = () => {
             <Globe className="w-8 h-8 text-destructive" />
           </div>
           <p className="text-white font-medium mb-2">Stream Unavailable</p>
-          <p className="text-white/60 text-sm mb-6 max-w-md">
+          <p className="text-white/60 text-sm mb-4 max-w-md">
             This stream may be geo-restricted or currently offline.
           </p>
+          <div className="flex items-center gap-2 text-white/40 text-xs mb-6">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            <span>Auto-retrying... (Attempt {retryCount + 1})</span>
+          </div>
           <Button onClick={handleRetry} variant="outline" className="border-white/20 text-white hover:bg-white/10">
             <RefreshCw className="w-4 h-4 mr-2" />
-            Retry
+            Retry Now
           </Button>
         </div>
       ) : null}
 
-      {/* Quality Selector */}
-      {!isLoading && !error && qualities.length > 0 && (
+      {/* Top Controls - Quality & PiP */}
+      {!isLoading && !error && (
         <div 
           className={cn(
-            "absolute top-4 right-4 z-20 transition-opacity duration-300",
+            "absolute top-4 right-4 z-20 flex gap-2 transition-opacity duration-300",
             showControls ? "opacity-100" : "opacity-0 pointer-events-none"
           )}
         >
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
-              >
-                <Settings className="w-4 h-4 mr-2" />
-                {getCurrentQualityLabel()}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-black/90 border-white/20 backdrop-blur-sm">
-              <DropdownMenuItem 
-                onClick={handleAutoQuality}
-                className={cn(
-                  "text-white hover:bg-white/10 cursor-pointer",
-                  currentQuality === -1 && "bg-primary/20"
-                )}
-              >
-                Auto
-              </DropdownMenuItem>
-              {qualities.map((quality) => (
-                <DropdownMenuItem
-                  key={quality.index}
-                  onClick={() => handleQualityChange(quality.index)}
+          {/* Picture-in-Picture Button */}
+          {isPiPSupported && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={togglePiP}
+              className={cn(
+                "bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm",
+                isPiPActive && "bg-primary/30"
+              )}
+            >
+              <PictureInPicture2 className="w-4 h-4" />
+            </Button>
+          )}
+
+          {/* Quality Selector */}
+          {qualities.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  {getCurrentQualityLabel()}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-black/90 border-white/20 backdrop-blur-sm">
+                <DropdownMenuItem 
+                  onClick={handleAutoQuality}
                   className={cn(
                     "text-white hover:bg-white/10 cursor-pointer",
-                    currentQuality === quality.index && "bg-primary/20"
+                    currentQuality === -1 && "bg-primary/20"
                   )}
                 >
-                  {quality.label}
+                  Auto
                 </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {qualities.map((quality) => (
+                  <DropdownMenuItem
+                    key={quality.index}
+                    onClick={() => handleQualityChange(quality.index)}
+                    className={cn(
+                      "text-white hover:bg-white/10 cursor-pointer",
+                      currentQuality === quality.index && "bg-primary/20"
+                    )}
+                  >
+                    {quality.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
 
