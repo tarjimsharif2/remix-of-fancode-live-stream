@@ -132,8 +132,8 @@ function validateAndSanitizeResponse(data: unknown): { matches: Record<string, u
 function isAllowedOrigin(origin: string | null): boolean {
   if (!origin) return false;
   
-  // Development mode
-  if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+  // Development mode and Lovable preview
+  if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('lovableproject.com')) {
     return true;
   }
   
