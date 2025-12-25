@@ -11,9 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 
 interface QualityLevel {
-  index: number;
-  height: number;
-  bitrate: number;
+  id: number;
   label: string;
 }
 
@@ -23,21 +21,17 @@ const Watch = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   
-  // Determine region from URL path
   const region: 'BD' | 'IN' = location.pathname.includes('play-bd') ? 'BD' : 'IN';
-  
-  // Get the full stream URL from query parameter
   const streamUrl = searchParams.get('url') || '';
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
-  const hlsRef = useRef<any>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerRef = useRef<any>(null);
   const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
-  const [currentQuality, setCurrentQuality] = useState<number>(-1); // -1 = Auto
+  const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [showControls, setShowControls] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [isPiPSupported, setIsPiPSupported] = useState(false);
@@ -50,6 +44,13 @@ const Watch = () => {
     }
   }, []);
 
+  const startAutoRetry = useCallback(() => {
+    stopAutoRetry();
+    retryIntervalRef.current = setInterval(() => {
+      setRetryCount(prev => prev + 1);
+    }, AUTO_RETRY_INTERVAL);
+  }, [stopAutoRetry]);
+
   const initPlayer = useCallback(async () => {
     if (!playerContainerRef.current || !streamUrl) {
       setError("No stream URL provided");
@@ -58,9 +59,9 @@ const Watch = () => {
     }
 
     // Cleanup previous player
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
+    if (playerRef.current) {
+      playerRef.current.destroy();
+      playerRef.current = null;
     }
 
     setIsLoading(true);
@@ -70,89 +71,89 @@ const Watch = () => {
     stopAutoRetry();
 
     try {
-      const Hls = (await import('hls.js')).default;
-      
-      // Clear container and create video element
+      const Clappr = await import('@clappr/player');
+      const HlsjsPlayback = await import('@clappr/hlsjs-playback');
+
       if (playerContainerRef.current) {
         playerContainerRef.current.innerHTML = '';
       }
-      
-      const video = document.createElement('video');
-      video.style.width = '100%';
-      video.style.height = '100%';
-      video.style.objectFit = 'contain';
-      video.controls = true;
-      video.autoplay = true;
-      video.playsInline = true;
-      playerContainerRef.current?.appendChild(video);
-      videoRef.current = video;
 
       // Check PiP support
       setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
 
-      // Listen for PiP events
-      video.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
-      video.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
-
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-        });
-
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
-        hlsRef.current = hls;
-
-        hls.on(Hls.Events.MANIFEST_PARSED, (_event: any, data: any) => {
-          setIsLoading(false);
-          setRetryCount(0);
-          stopAutoRetry();
-          
-          // Extract quality levels
-          const levels: QualityLevel[] = data.levels.map((level: any, index: number) => ({
-            index,
-            height: level.height,
-            bitrate: level.bitrate,
-            label: level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`,
-          }));
-          
-          // Sort by height descending
-          levels.sort((a, b) => b.height - a.height);
-          setQualities(levels);
-          
-          video.play().catch(() => {});
-        });
-
-        hls.on(Hls.Events.ERROR, (_event: any, data: any) => {
-          if (data.fatal) {
-            console.error('HLS fatal error:', data);
-            setError(`Stream unavailable. This stream may be geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
+      const player = new Clappr.default.Player({
+        parent: playerContainerRef.current,
+        source: streamUrl,
+        plugins: [HlsjsPlayback.default],
+        playback: {
+          hlsjsConfig: {
+            enableWorker: true,
+            lowLatencyMode: true,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
+          }
+        },
+        autoPlay: true,
+        mute: false,
+        height: '100%',
+        width: '100%',
+        mediacontrol: {
+          seekbar: '#10b981',
+          buttons: '#ffffff'
+        },
+        events: {
+          onError: (e: any) => {
+            console.error('Clappr error:', e);
+            setError(`Stream unavailable. Geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
             setIsLoading(false);
             startAutoRetry();
-          }
-        });
+          },
+          onPlay: () => {
+            setIsLoading(false);
+            setRetryCount(0);
+            stopAutoRetry();
+          },
+          onReady: () => {
+            setIsLoading(false);
+            
+            // Extract quality levels from HLS playback
+            try {
+              const playback = player.core?.getCurrentPlayback?.();
+              if (playback && playback.hls) {
+                const hls = playback.hls;
+                const levels = hls.levels || [];
+                const qualityList: QualityLevel[] = levels.map((level: any, index: number) => ({
+                  id: index,
+                  label: level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`,
+                }));
+                qualityList.sort((a, b) => {
+                  const heightA = parseInt(a.label) || 0;
+                  const heightB = parseInt(b.label) || 0;
+                  return heightB - heightA;
+                });
+                setQualities(qualityList);
+              }
+            } catch (err) {
+              console.log('Could not extract qualities:', err);
+            }
 
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS support (Safari)
-        video.src = streamUrl;
-        video.addEventListener('loadedmetadata', () => {
-          setIsLoading(false);
-          setRetryCount(0);
-          stopAutoRetry();
-          video.play().catch(() => {});
-        });
-        video.addEventListener('error', () => {
-          setError(`Stream unavailable. This stream may be geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
-          setIsLoading(false);
-          startAutoRetry();
-        });
-      } else {
-        setError('HLS playback is not supported in this browser.');
+            // Setup PiP listeners
+            const videoElement = player.core?.getCurrentPlayback?.()?.el;
+            if (videoElement) {
+              videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
+              videoElement.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
+            }
+          }
+        }
+      });
+
+      playerRef.current = player;
+
+      player.on(Clappr.default.Events.PLAYER_ERROR, () => {
+        setError(`Stream unavailable. Geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
         setIsLoading(false);
-      }
+        startAutoRetry();
+      });
 
     } catch (err) {
       console.error('Failed to initialize player:', err);
@@ -160,38 +161,48 @@ const Watch = () => {
       setIsLoading(false);
       startAutoRetry();
     }
-  }, [streamUrl, region, stopAutoRetry]);
+  }, [streamUrl, region, stopAutoRetry, startAutoRetry]);
 
-  const startAutoRetry = useCallback(() => {
-    stopAutoRetry();
-    retryIntervalRef.current = setInterval(() => {
-      setRetryCount(prev => prev + 1);
+  // Handle retry count changes
+  useEffect(() => {
+    if (retryCount > 0) {
       initPlayer();
-    }, AUTO_RETRY_INTERVAL);
-  }, [stopAutoRetry, initPlayer]);
+    }
+  }, [retryCount]);
 
-  const handleQualityChange = (levelIndex: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = levelIndex;
-      setCurrentQuality(levelIndex);
+  const handleQualityChange = (levelId: number) => {
+    try {
+      const playback = playerRef.current?.core?.getCurrentPlayback?.();
+      if (playback && playback.hls) {
+        playback.hls.currentLevel = levelId;
+        setCurrentQuality(levelId);
+      }
+    } catch (err) {
+      console.error('Quality change error:', err);
     }
   };
 
   const handleAutoQuality = () => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = -1; // Auto
-      setCurrentQuality(-1);
+    try {
+      const playback = playerRef.current?.core?.getCurrentPlayback?.();
+      if (playback && playback.hls) {
+        playback.hls.currentLevel = -1;
+        setCurrentQuality(-1);
+      }
+    } catch (err) {
+      console.error('Auto quality error:', err);
     }
   };
 
   const togglePiP = async () => {
-    if (!videoRef.current) return;
-
     try {
+      const videoElement = playerRef.current?.core?.getCurrentPlayback?.()?.el;
+      if (!videoElement) return;
+
       if (isPiPActive) {
         await (document as any).exitPictureInPicture();
       } else {
-        await (videoRef.current as any).requestPictureInPicture();
+        await videoElement.requestPictureInPicture();
       }
     } catch (err) {
       console.error('PiP error:', err);
@@ -203,14 +214,14 @@ const Watch = () => {
 
     return () => {
       stopAutoRetry();
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
       }
     };
   }, [initPlayer, stopAutoRetry]);
 
-  // Hide controls after 3 seconds of inactivity
+  // Hide controls after inactivity
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     
@@ -222,8 +233,6 @@ const Watch = () => {
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('touchstart', handleMouseMove);
-    
-    // Initial timeout
     timeout = setTimeout(() => setShowControls(false), 3000);
 
     return () => {
@@ -240,7 +249,7 @@ const Watch = () => {
 
   const getCurrentQualityLabel = () => {
     if (currentQuality === -1) return 'Auto';
-    const quality = qualities.find(q => q.index === currentQuality);
+    const quality = qualities.find(q => q.id === currentQuality);
     return quality?.label || 'Auto';
   };
 
@@ -273,7 +282,7 @@ const Watch = () => {
         </div>
       ) : null}
 
-      {/* Top Controls - Quality & PiP */}
+      {/* Top Controls */}
       {!isLoading && !error && (
         <div 
           className={cn(
@@ -281,7 +290,6 @@ const Watch = () => {
             showControls ? "opacity-100" : "opacity-0 pointer-events-none"
           )}
         >
-          {/* Picture-in-Picture Button */}
           {isPiPSupported && (
             <Button 
               variant="outline" 
@@ -296,7 +304,6 @@ const Watch = () => {
             </Button>
           )}
 
-          {/* Quality Selector */}
           {qualities.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -321,11 +328,11 @@ const Watch = () => {
                 </DropdownMenuItem>
                 {qualities.map((quality) => (
                   <DropdownMenuItem
-                    key={quality.index}
-                    onClick={() => handleQualityChange(quality.index)}
+                    key={quality.id}
+                    onClick={() => handleQualityChange(quality.id)}
                     className={cn(
                       "text-white hover:bg-white/10 cursor-pointer",
-                      currentQuality === quality.index && "bg-primary/20"
+                      currentQuality === quality.id && "bg-primary/20"
                     )}
                   >
                     {quality.label}
@@ -337,7 +344,7 @@ const Watch = () => {
         </div>
       )}
 
-      {/* Video Player Container - Fullscreen */}
+      {/* Clappr Player Container */}
       <div 
         ref={playerContainerRef} 
         className={cn(
