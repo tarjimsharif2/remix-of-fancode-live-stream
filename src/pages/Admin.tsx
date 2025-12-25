@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
   Table,
@@ -35,19 +36,23 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Globe, Plus, Trash2, LogOut, Shield, Edit } from "lucide-react";
+import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor } from "lucide-react";
 
 interface AllowedDomain {
   id: string;
   domain: string;
   description: string | null;
   is_active: boolean;
+  domain_type: 'embed' | 'api';
   created_at: string;
   updated_at: string;
 }
 
+type DomainType = 'embed' | 'api';
+
 const Admin = () => {
-  const [domains, setDomains] = useState<AllowedDomain[]>([]);
+  const [embedDomains, setEmbedDomains] = useState<AllowedDomain[]>([]);
+  const [apiDomains, setApiDomains] = useState<AllowedDomain[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [newDomain, setNewDomain] = useState("");
@@ -57,6 +62,7 @@ const Admin = () => {
   const [editDescription, setEditDescription] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<DomainType>('embed');
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -94,7 +100,9 @@ const Admin = () => {
         variant: "destructive",
       });
     } else {
-      setDomains(data || []);
+      const allDomains = (data || []) as AllowedDomain[];
+      setEmbedDomains(allDomains.filter(d => d.domain_type === 'embed'));
+      setApiDomains(allDomains.filter(d => d.domain_type === 'api'));
     }
     setIsLoading(false);
   };
@@ -128,6 +136,7 @@ const Admin = () => {
         domain: trimmedDomain,
         description: newDescription.trim() || null,
         is_active: true,
+        domain_type: activeTab,
       });
 
     if (error) {
@@ -213,7 +222,7 @@ const Admin = () => {
     }
   };
 
-  const handleToggleActive = async (id: string, isActive: boolean) => {
+  const handleToggleActive = async (id: string, isActive: boolean, type: DomainType) => {
     const { error } = await supabase
       .from("allowed_domains")
       .update({ is_active: isActive })
@@ -226,7 +235,11 @@ const Admin = () => {
         variant: "destructive",
       });
     } else {
-      setDomains(domains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
+      if (type === 'embed') {
+        setEmbedDomains(embedDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
+      } else {
+        setApiDomains(apiDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
+      }
       toast({
         title: "Success",
         description: `Domain ${isActive ? "activated" : "deactivated"}`,
@@ -275,6 +288,86 @@ const Admin = () => {
     );
   }
 
+  const currentDomains = activeTab === 'embed' ? embedDomains : apiDomains;
+
+  const DomainTable = ({ domains, type }: { domains: AllowedDomain[]; type: DomainType }) => (
+    <>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : domains.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No {type === 'embed' ? 'embed' : 'API'} domains added yet. Click "Add Domain" to get started.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Domain</TableHead>
+                <TableHead className="hidden sm:table-cell">Description</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {domains.map((domain) => (
+                <TableRow key={domain.id}>
+                  <TableCell className="font-medium">{domain.domain}</TableCell>
+                  <TableCell className="hidden sm:table-cell text-muted-foreground">
+                    {domain.description || "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={domain.is_active}
+                      onCheckedChange={(checked) => handleToggleActive(domain.id, checked, type)}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditDialog(domain)}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Domain</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete "{domain.domain}"? This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDeleteDomain(domain.id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
@@ -285,7 +378,7 @@ const Admin = () => {
             </div>
             <div>
               <h1 className="text-2xl font-bold">Admin Panel</h1>
-              <p className="text-muted-foreground text-sm">Manage allowed embed domains</p>
+              <p className="text-muted-foreground text-sm">Manage allowed domains</p>
             </div>
           </div>
           <Button variant="outline" onClick={handleSignOut}>
@@ -300,10 +393,10 @@ const Admin = () => {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Globe className="w-5 h-5" />
-                  Allowed Domains
+                  Domain Management
                 </CardTitle>
                 <CardDescription>
-                  Domains that can embed the video player
+                  Control which domains can embed the player and access the API
                 </CardDescription>
               </div>
               <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -315,9 +408,11 @@ const Admin = () => {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Add New Domain</DialogTitle>
+                    <DialogTitle>Add New {activeTab === 'embed' ? 'Embed' : 'API'} Domain</DialogTitle>
                     <DialogDescription>
-                      Add a domain that can embed the video player
+                      {activeTab === 'embed' 
+                        ? 'Add a domain that can embed the video player'
+                        : 'Add a domain that can access the fetch-matches API'}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
@@ -351,79 +446,32 @@ const Admin = () => {
             </div>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : domains.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No domains added yet. Click "Add Domain" to get started.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Domain</TableHead>
-                      <TableHead className="hidden sm:table-cell">Description</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {domains.map((domain) => (
-                      <TableRow key={domain.id}>
-                        <TableCell className="font-medium">{domain.domain}</TableCell>
-                        <TableCell className="hidden sm:table-cell text-muted-foreground">
-                          {domain.description || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Switch
-                            checked={domain.is_active}
-                            onCheckedChange={(checked) => handleToggleActive(domain.id, checked)}
-                          />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditDialog(domain)}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Domain</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to delete "{domain.domain}"? This action cannot be undone.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteDomain(domain.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DomainType)} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="embed" className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4" />
+                  Embed Domains ({embedDomains.length})
+                </TabsTrigger>
+                <TabsTrigger value="api" className="flex items-center gap-2">
+                  <Server className="w-4 h-4" />
+                  API Origins ({apiDomains.length})
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="embed">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Domains that can embed the video player in an iframe.
+                </p>
+                <DomainTable domains={embedDomains} type="embed" />
+              </TabsContent>
+              
+              <TabsContent value="api">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Domains allowed to access the fetch-matches API endpoint.
+                </p>
+                <DomainTable domains={apiDomains} type="api" />
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
 
