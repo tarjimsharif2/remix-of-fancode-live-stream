@@ -36,7 +36,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key } from "lucide-react";
+import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw } from "lucide-react";
 
 interface AllowedDomain {
   id: string;
@@ -68,6 +68,9 @@ const Admin = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<DomainType>('embed');
+  const [dataSourceUrl, setDataSourceUrl] = useState("");
+  const [originalDataSourceUrl, setOriginalDataSourceUrl] = useState("");
+  const [isSavingUrl, setIsSavingUrl] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -85,6 +88,7 @@ const Admin = () => {
       } else {
         setIsCheckingAuth(false);
         fetchDomains();
+        fetchDataSourceUrl();
       }
     });
 
@@ -110,6 +114,67 @@ const Admin = () => {
       setApiDomains(allDomains.filter(d => d.domain_type === 'api'));
     }
     setIsLoading(false);
+  };
+
+  const fetchDataSourceUrl = async () => {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "data_source_url")
+      .single();
+
+    if (!error && data) {
+      setDataSourceUrl(data.value);
+      setOriginalDataSourceUrl(data.value);
+    }
+  };
+
+  const handleSaveDataSourceUrl = async () => {
+    const trimmedUrl = dataSourceUrl.trim();
+    
+    if (!trimmedUrl) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate URL format
+    try {
+      new URL(trimmedUrl);
+    } catch {
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingUrl(true);
+
+    const { error } = await supabase
+      .from("app_settings")
+      .update({ value: trimmedUrl })
+      .eq("key", "data_source_url");
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save data source URL",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Success",
+        description: "Data source URL updated successfully",
+      });
+      setOriginalDataSourceUrl(trimmedUrl);
+    }
+
+    setIsSavingUrl(false);
   };
 
   const handleAddDomain = async () => {
@@ -581,6 +646,49 @@ const Admin = () => {
                 <DomainTable domains={apiDomains} type="api" />
               </TabsContent>
             </Tabs>
+          </CardContent>
+        </Card>
+
+        {/* Data Source Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5" />
+              Data Source Settings
+            </CardTitle>
+            <CardDescription>
+              Configure the GitHub JSON URL for fetching match data
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="data-source-url">GitHub JSON URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="data-source-url"
+                    placeholder="https://raw.githubusercontent.com/..."
+                    value={dataSourceUrl}
+                    onChange={(e) => setDataSourceUrl(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleSaveDataSourceUrl}
+                    disabled={isSavingUrl || dataSourceUrl === originalDataSourceUrl}
+                  >
+                    {isSavingUrl ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span className="ml-2 hidden sm:inline">Save</span>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The edge function will fetch match data from this URL. Changes take effect immediately.
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
