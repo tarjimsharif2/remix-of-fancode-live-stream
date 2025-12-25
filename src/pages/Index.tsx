@@ -11,8 +11,8 @@ const Index = () => {
 
   const handleWatch = (match: Match, region: 'BD' | 'IN') => {
     if (match.matchId) {
-      const matchName = `${match.team1} vs ${match.team2}`;
-      navigate(`/watch/${match.matchId}?region=${region}&match=${encodeURIComponent(matchName)}`);
+      const path = region === 'BD' ? '/fancode/play-bd.php' : '/fancode/play-in.php';
+      navigate(`${path}?id=${match.matchId}`);
     }
   };
 
