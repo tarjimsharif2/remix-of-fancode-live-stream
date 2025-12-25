@@ -4,22 +4,15 @@ import { Globe, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// Generate stream URL from match ID
-const generateStreamUrl = (matchId: string, region: 'BD' | 'IN'): string => {
-  const prefix = region === 'BD' ? 'bd-mc-fdlive' : 'in-mc-fdlive';
-  return `https://${prefix}.fancode.com/mumbai/${matchId}_english_hls/master.m3u8`;
-};
-
 const Watch = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   
   // Determine region from URL path
   const region: 'BD' | 'IN' = location.pathname.includes('play-bd') ? 'BD' : 'IN';
-  const matchId = searchParams.get('id') || '';
   
-  // Generate stream URL from match ID
-  const streamUrl = matchId ? generateStreamUrl(matchId, region) : '';
+  // Get the full stream URL from query parameter
+  const streamUrl = searchParams.get('url') || '';
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -28,7 +21,7 @@ const Watch = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   const initPlayer = useCallback(async () => {
-    if (!playerContainerRef.current || !streamUrl || !matchId) {
+    if (!playerContainerRef.current || !streamUrl) {
       setError("No stream URL provided");
       setIsLoading(false);
       return;
@@ -101,7 +94,7 @@ const Watch = () => {
       setError('Failed to load video player. Please try again.');
       setIsLoading(false);
     }
-  }, [streamUrl, region, matchId]);
+  }, [streamUrl, region]);
 
   useEffect(() => {
     initPlayer();
