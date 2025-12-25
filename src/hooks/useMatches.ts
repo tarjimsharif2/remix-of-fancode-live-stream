@@ -56,6 +56,13 @@ export const useMatches = () => {
 
   useEffect(() => {
     fetchMatches();
+    
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(() => {
+      fetchMatches();
+    }, 60000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { matches, loading, error, lastUpdated, refetch: fetchMatches };
