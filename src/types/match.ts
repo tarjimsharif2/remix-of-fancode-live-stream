@@ -6,8 +6,8 @@ export interface Match {
   startTime: string;
   status: 'live' | 'upcoming';
   thumbnail?: string;
-  streamLink?: string;
-  adfreeLink?: string;
+  streamLinkIN?: string;
+  streamLinkBD?: string;
   matchId?: number;
   title?: string;
   category?: string;

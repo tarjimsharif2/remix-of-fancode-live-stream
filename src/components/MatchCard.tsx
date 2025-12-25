@@ -6,7 +6,7 @@ import { Play } from "lucide-react";
 interface MatchCardProps {
   match: Match;
   index: number;
-  onWatch: (match: Match) => void;
+  onWatch: (match: Match, region: 'BD' | 'IN') => void;
 }
 
 export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
@@ -62,7 +62,8 @@ export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
             variant="watch"
             size="watch"
             className="flex-1"
-            onClick={() => onWatch(match)}
+            onClick={() => onWatch(match, 'BD')}
+            disabled={!match.streamLinkBD}
           >
             <Play className="w-4 h-4" />
             Watch BD
@@ -71,7 +72,8 @@ export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
             variant="watch"
             size="watch"
             className="flex-1"
-            onClick={() => onWatch(match)}
+            onClick={() => onWatch(match, 'IN')}
+            disabled={!match.streamLinkIN}
           >
             <Play className="w-4 h-4" />
             Watch IN
