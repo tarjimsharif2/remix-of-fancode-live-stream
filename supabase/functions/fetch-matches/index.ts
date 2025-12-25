@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FANCODE_DATA_URL = 'https://raw.githubusercontent.com/drmlive/fancode-live-events/main/fancode.json';
+const DEFAULT_DATA_URL = 'https://raw.githubusercontent.com/drmlive/fancode-live-events/main/fancode.json';
 
 // Allowed stream URL domain patterns (must be exact domain or subdomain)
 const ALLOWED_STREAM_DOMAIN_PATTERNS = [
@@ -157,6 +157,27 @@ async function fetchAllowedOrigins(supabase: any): Promise<string[]> {
   }
 }
 
+// Fetch data source URL from database
+async function fetchDataSourceUrl(supabase: any): Promise<string> {
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'data_source_url')
+      .single();
+
+    if (error || !data?.value) {
+      console.log('Using default data source URL');
+      return DEFAULT_DATA_URL;
+    }
+
+    return data.value;
+  } catch (err) {
+    console.error('Error fetching data source URL:', err);
+    return DEFAULT_DATA_URL;
+  }
+}
+
 function isAllowedOrigin(origin: string | null, allowedDomains: string[]): boolean {
   if (!origin) return false;
   
@@ -238,7 +259,11 @@ serve(async (req) => {
       });
     }
     
-    const response = await fetch(FANCODE_DATA_URL, {
+    // Fetch data source URL from database
+    const dataSourceUrl = await fetchDataSourceUrl(supabase);
+    console.log(`Fetching data from: ${dataSourceUrl}`);
+    
+    const response = await fetch(dataSourceUrl, {
       headers: { 'Cache-Control': 'no-cache' },
     });
     
