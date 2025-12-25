@@ -19,6 +19,84 @@ interface QualityLevel {
 
 const AUTO_RETRY_INTERVAL = 10000;
 
+const ALLOWED_PARENT_DOMAINS = [
+  'cricfoots.com',
+  'www.cricfoots.com',
+  'eplayhd.com',
+  'www.eplayhd.com',
+];
+
+// Check if running inside an iframe from allowed domain
+const checkIframeAccess = (): { isAllowed: boolean; reason: string } => {
+  // Check if we're in an iframe
+  const isInIframe = window.self !== window.top;
+  
+  if (!isInIframe) {
+    return { isAllowed: false, reason: 'This player can only be accessed via embed.' };
+  }
+
+  try {
+    // Try to get parent origin (will throw if cross-origin without permission)
+    const parentOrigin = document.referrer;
+    
+    if (!parentOrigin) {
+      // In development/preview, allow access
+      if (window.location.hostname.includes('localhost') || 
+          window.location.hostname.includes('lovableproject.com') ||
+          window.location.hostname.includes('lovable.app') ||
+          window.location.hostname.includes('vercel.app')) {
+        return { isAllowed: true, reason: '' };
+      }
+      return { isAllowed: false, reason: 'Unable to verify parent origin.' };
+    }
+
+    const parentUrl = new URL(parentOrigin);
+    const parentHostname = parentUrl.hostname;
+
+    // Check if parent domain is allowed
+    const isAllowedDomain = ALLOWED_PARENT_DOMAINS.some(domain => 
+      parentHostname === domain || parentHostname.endsWith('.' + domain)
+    );
+
+    if (!isAllowedDomain) {
+      // Allow development/preview domains
+      if (parentHostname.includes('localhost') || 
+          parentHostname.includes('lovableproject.com') ||
+          parentHostname.includes('lovable.app') ||
+          parentHostname.includes('vercel.app')) {
+        return { isAllowed: true, reason: '' };
+      }
+      return { isAllowed: false, reason: 'Embedding not authorized for this domain.' };
+    }
+
+    return { isAllowed: true, reason: '' };
+  } catch {
+    // Cross-origin error - check referrer as fallback
+    const referrer = document.referrer;
+    if (referrer) {
+      try {
+        const refUrl = new URL(referrer);
+        const isAllowed = ALLOWED_PARENT_DOMAINS.some(domain => 
+          refUrl.hostname === domain || refUrl.hostname.endsWith('.' + domain)
+        );
+        if (isAllowed) {
+          return { isAllowed: true, reason: '' };
+        }
+        // Allow dev domains
+        if (refUrl.hostname.includes('localhost') || 
+            refUrl.hostname.includes('lovableproject.com') ||
+            refUrl.hostname.includes('lovable.app') ||
+            refUrl.hostname.includes('vercel.app')) {
+          return { isAllowed: true, reason: '' };
+        }
+      } catch {
+        // Invalid referrer URL
+      }
+    }
+    return { isAllowed: false, reason: 'Unable to verify embed origin.' };
+  }
+};
+
 const Watch = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -41,6 +119,13 @@ const Watch = () => {
   const [isPiPSupported, setIsPiPSupported] = useState(false);
   const [isPiPActive, setIsPiPActive] = useState(false);
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
+  const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
+
+  // Check iframe access on mount
+  useEffect(() => {
+    const access = checkIframeAccess();
+    setIframeAccess(access);
+  }, []);
 
   // Fetch stream URL from match data
   const fetchStreamUrl = useCallback(async () => {
@@ -343,6 +428,24 @@ const Watch = () => {
     const quality = qualities.find(q => q.id === currentQuality);
     return quality?.label || 'Auto';
   };
+
+  // Check iframe access first
+  if (iframeAccess && !iframeAccess.isAllowed) {
+    return (
+      <div className="fixed inset-0 w-screen h-screen bg-black flex flex-col items-center justify-center text-center p-6">
+        <div className="bg-destructive/20 rounded-full p-4 mb-4">
+          <ShieldX className="w-10 h-10 text-destructive" />
+        </div>
+        <p className="text-white font-bold text-xl mb-2">Embed Only</p>
+        <p className="text-white/60 text-sm max-w-md mb-4">
+          {iframeAccess.reason}
+        </p>
+        <p className="text-white/40 text-xs">
+          This player is only available when embedded on cricfoots.com or eplayhd.com
+        </p>
+      </div>
+    );
+  }
 
   if (accessDenied) {
     return (
