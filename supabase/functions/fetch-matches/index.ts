@@ -6,6 +6,8 @@ const ALLOWED_ORIGINS = [
   'https://www.cricfoots.com',
   'https://eplayhd.com',
   'https://www.eplayhd.com',
+  'https://eplayhdtv.site',
+  'https://www.eplayhdtv.site',
 ];
 
 // Allowed stream URL domain patterns (must be exact domain or subdomain)
