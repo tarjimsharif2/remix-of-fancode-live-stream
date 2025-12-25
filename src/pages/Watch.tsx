@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe, RefreshCw, ExternalLink } from "lucide-react";
+import { Globe, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -118,15 +118,6 @@ const Watch = () => {
     initPlayer();
   };
 
-  const switchRegion = () => {
-    const newPath = region === 'BD' ? '/fancode/play-in.php' : '/fancode/play-bd.php';
-    window.location.href = `${newPath}?id=${matchId}`;
-  };
-
-  const openFancode = () => {
-    window.open('https://www.fancode.com', '_blank');
-  };
-
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
       {isLoading && !error && (
@@ -143,25 +134,12 @@ const Watch = () => {
           </div>
           <p className="text-white font-medium mb-2">Stream Unavailable</p>
           <p className="text-white/60 text-sm mb-6 max-w-md">
-            {error}
+            This stream may be geo-restricted or currently offline.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button onClick={handleRetry} variant="outline" className="border-white/20 text-white hover:bg-white/10">
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Retry
-            </Button>
-            <Button onClick={switchRegion} variant="secondary">
-              <Globe className="w-4 h-4 mr-2" />
-              Try {region === 'BD' ? 'India' : 'Bangladesh'} Stream
-            </Button>
-            <Button onClick={openFancode} variant="default">
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Watch on Fancode
-            </Button>
-          </div>
-          <p className="text-xs text-white/40 mt-4">
-            💡 Use a VPN to access geo-restricted streams
-          </p>
+          <Button onClick={handleRetry} variant="outline" className="border-white/20 text-white hover:bg-white/10">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Retry
+          </Button>
         </div>
       ) : null}
 
