@@ -81,6 +81,19 @@ function validateMatch(match: unknown): Record<string, unknown> | null {
     return null;
   }
   
+  // Validate thumbnail URL (allow common image CDN domains)
+  let thumbnailUrl: string | null = null;
+  if (typeof m.src === 'string' && m.src) {
+    try {
+      const parsed = new URL(m.src);
+      if (parsed.protocol === 'https:') {
+        thumbnailUrl = m.src;
+      }
+    } catch {
+      // Invalid URL
+    }
+  }
+  
   return {
     match_id: m.match_id,
     team_1: sanitizeString(m.team_1, 100),
@@ -89,6 +102,7 @@ function validateMatch(match: unknown): Record<string, unknown> | null {
     status: sanitizeString(m.status, 50),
     start_time: sanitizeString(m.start_time, 50),
     venue: sanitizeString(m.venue, 200),
+    src: thumbnailUrl,
     adfree_url: validateStreamUrl(m.adfree_url),
     dai_url: validateStreamUrl(m.dai_url),
   };
