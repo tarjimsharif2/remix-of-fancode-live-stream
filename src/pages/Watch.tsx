@@ -19,24 +19,6 @@ interface QualityLevel {
 
 const AUTO_RETRY_INTERVAL = 10000;
 
-// Client-side check is kept as an extra layer but real validation happens server-side
-const checkClientDomain = (): boolean => {
-  try {
-    const currentHost = window.location.hostname;
-    // Allow localhost for development
-    if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
-      return true;
-    }
-    // Check if we're on an allowed domain (visual indicator only, server enforces)
-    const allowedDomains = ['cricfoots.com', 'eplayhd.com'];
-    return allowedDomains.some(domain => 
-      currentHost === domain || currentHost.endsWith('.' + domain)
-    );
-  } catch {
-    return false;
-  }
-};
-
 const Watch = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -126,11 +108,6 @@ const Watch = () => {
   }, [matchId, region]);
 
   useEffect(() => {
-    // Client-side visual check (server-side enforces the real security)
-    if (!checkClientDomain()) {
-      console.log('Client domain check failed - server will enforce');
-    }
-    
     fetchStreamUrl();
   }, [fetchStreamUrl]);
 
