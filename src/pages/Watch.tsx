@@ -159,8 +159,23 @@ const Watch = () => {
           hlsjsConfig: {
             enableWorker: true,
             lowLatencyMode: true,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
+            // Faster startup: reduce initial buffer requirements
+            maxBufferLength: 10,
+            maxMaxBufferLength: 30,
+            maxBufferSize: 30 * 1000 * 1000,
+            maxBufferHole: 0.5,
+            // Fast start settings
+            startLevel: -1, // Auto-select best starting quality
+            abrEwmaDefaultEstimate: 5000000, // Assume 5Mbps initially
+            abrBandWidthFactor: 0.95,
+            abrBandWidthUpFactor: 0.7,
+            // Reduce fragment loading time
+            fragLoadingTimeOut: 8000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 500,
+            // Start playing earlier
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 4,
           }
         },
         autoPlay: true,
@@ -350,9 +365,9 @@ const Watch = () => {
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
       {(isLoading || isFetchingStream) && !error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-white/70 text-sm">
-            {isFetchingStream ? 'Loading stream...' : `Connecting to ${region} stream...`}
+          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin mb-3" />
+          <p className="text-white/80 text-sm font-medium">
+            {isFetchingStream ? 'Loading...' : 'Connecting...'}
           </p>
         </div>
       )}
