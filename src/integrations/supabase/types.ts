@@ -19,6 +19,7 @@ export type Database = {
           created_at: string
           description: string | null
           domain: string
+          domain_type: string
           id: string
           is_active: boolean
           updated_at: string
@@ -27,6 +28,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           domain: string
+          domain_type?: string
           id?: string
           is_active?: boolean
           updated_at?: string
@@ -35,6 +37,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           domain?: string
+          domain_type?: string
           id?: string
           is_active?: boolean
           updated_at?: string

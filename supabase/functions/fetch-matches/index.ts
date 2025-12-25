@@ -1,21 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-// Allowed origins for CORS and domain validation (exact matches only)
-const ALLOWED_ORIGINS = [
-  'https://cricfoots.com',
-  'https://www.cricfoots.com',
-  'https://eplayhd.com',
-  'https://www.eplayhd.com',
-  'https://eplayhdtv.site',
-  'https://www.eplayhdtv.site',
-];
-
-// Allowed stream URL domain patterns (must be exact domain or subdomain)
-const ALLOWED_STREAM_DOMAIN_PATTERNS = [
-  /^([a-z0-9-]+\.)*fdlive\.[a-z]+$/i,
-  /^([a-z0-9-]+\.)*fancode\.[a-z]+$/i,
-  /^([a-z0-9-]+\.)*hotstar\.[a-z]+$/i,
-];
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,6 +7,13 @@ const corsHeaders = {
 };
 
 const FANCODE_DATA_URL = 'https://raw.githubusercontent.com/drmlive/fancode-live-events/main/fancode.json';
+
+// Allowed stream URL domain patterns (must be exact domain or subdomain)
+const ALLOWED_STREAM_DOMAIN_PATTERNS = [
+  /^([a-z0-9-]+\.)*fdlive\.[a-z]+$/i,
+  /^([a-z0-9-]+\.)*fancode\.[a-z]+$/i,
+  /^([a-z0-9-]+\.)*hotstar\.[a-z]+$/i,
+];
 
 // Rate limiting - note: resets on cold start, provides basic protection only
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -131,16 +122,50 @@ function validateAndSanitizeResponse(data: unknown): { matches: Record<string, u
   return result;
 }
 
-function isAllowedOrigin(origin: string | null): boolean {
+// Fetch allowed API origins from database
+async function fetchAllowedOrigins(supabase: any): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('allowed_domains')
+      .select('domain')
+      .eq('is_active', true)
+      .eq('domain_type', 'api');
+
+    if (error) {
+      console.error('Failed to fetch allowed origins from database:', error);
+      return [];
+    }
+
+    return data?.map((d: { domain: string }) => d.domain) || [];
+  } catch (err) {
+    console.error('Error fetching allowed origins:', err);
+    return [];
+  }
+}
+
+function isAllowedOrigin(origin: string | null, allowedDomains: string[]): boolean {
   if (!origin) return false;
   
-  // Development mode, Lovable preview, and Vercel deployments
-  if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('lovableproject.com') || origin.includes('lovable.app') || origin.includes('vercel.app')) {
-    return true;
+  try {
+    const originUrl = new URL(origin);
+    const hostname = originUrl.hostname;
+    
+    // Development mode, Lovable preview, and Vercel deployments
+    if (hostname.includes('localhost') || 
+        hostname.includes('127.0.0.1') || 
+        hostname.includes('lovableproject.com') || 
+        hostname.includes('lovable.app') || 
+        hostname.includes('vercel.app')) {
+      return true;
+    }
+    
+    // Check against dynamic allowed domains from database
+    return allowedDomains.some(domain => 
+      hostname === domain || hostname.endsWith('.' + domain)
+    );
+  } catch {
+    return false;
   }
-  
-  // Exact origin match only
-  return ALLOWED_ORIGINS.includes(origin);
 }
 
 serve(async (req) => {
@@ -164,21 +189,31 @@ serve(async (req) => {
       });
     }
     
+    // Initialize Supabase client to fetch allowed origins
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    
+    // Fetch allowed origins from database
+    const allowedDomains = await fetchAllowedOrigins(supabase);
+    console.log(`Loaded ${allowedDomains.length} allowed API origins from database`);
+    
     const origin = req.headers.get('origin');
     const referer = req.headers.get('referer');
     
-    let isAllowed = isAllowedOrigin(origin);
+    let isAllowed = isAllowedOrigin(origin, allowedDomains);
     
     if (!isAllowed && referer) {
       try {
         const refererUrl = new URL(referer);
-        isAllowed = isAllowedOrigin(refererUrl.origin);
+        isAllowed = isAllowedOrigin(refererUrl.origin, allowedDomains);
       } catch {
         // Invalid referer
       }
     }
     
     if (!isAllowed) {
+      console.log(`Unauthorized request from origin: ${origin}, referer: ${referer}`);
       return new Response(JSON.stringify({
         success: false,
         error: 'Unauthorized',
@@ -209,6 +244,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: unknown) {
+    console.error('Error in fetch-matches:', error);
     return new Response(JSON.stringify({
       success: false,
       error: 'Service unavailable',

@@ -18,11 +18,27 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    // Fetch active domains
+    // Get domain type from query params (default to 'embed')
+    const url = new URL(req.url);
+    const domainType = url.searchParams.get('type') || 'embed';
+
+    // Validate domain type
+    if (domainType !== 'embed' && domainType !== 'api') {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid domain type', domains: [] }),
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+    }
+
+    // Fetch active domains of the specified type
     const { data, error } = await supabase
       .from('allowed_domains')
       .select('domain')
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .eq('domain_type', domainType);
 
     if (error) {
       console.error('Database error:', error);
@@ -37,7 +53,7 @@ serve(async (req) => {
 
     const domains = data?.map(d => d.domain) || [];
     
-    console.log(`Returning ${domains.length} allowed domains`);
+    console.log(`Returning ${domains.length} ${domainType} domains`);
 
     return new Response(
       JSON.stringify({ success: true, domains }),
