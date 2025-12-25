@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe, RefreshCw, Settings, PictureInPicture2 } from "lucide-react";
+import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,9 +13,70 @@ import { cn } from "@/lib/utils";
 interface QualityLevel {
   id: number;
   label: string;
+  height: number;
 }
 
-const AUTO_RETRY_INTERVAL = 10000; // 10 seconds
+const AUTO_RETRY_INTERVAL = 10000;
+const ALLOWED_DOMAINS = ['cricfoots.com', 'eplayhd.com', 'localhost', '127.0.0.1'];
+
+// Check if current page is embedded in an allowed domain
+const checkDomainAccess = (): { allowed: boolean; reason: string } => {
+  try {
+    // Check if we're in an iframe
+    const isInIframe = window.self !== window.top;
+    
+    // Get current hostname
+    const currentHost = window.location.hostname;
+    
+    // Allow localhost for development
+    if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+      return { allowed: true, reason: 'Development mode' };
+    }
+
+    // If not in iframe, check if we're on allowed domain directly
+    if (!isInIframe) {
+      const isAllowedDirect = ALLOWED_DOMAINS.some(domain => 
+        currentHost === domain || currentHost.endsWith('.' + domain)
+      );
+      if (isAllowedDirect) {
+        return { allowed: true, reason: 'Direct access on allowed domain' };
+      }
+      return { allowed: false, reason: 'Direct access not allowed. Must be embedded on authorized websites.' };
+    }
+
+    // If in iframe, try to check parent origin
+    try {
+      const parentHost = window.parent.location.hostname;
+      const isAllowedParent = ALLOWED_DOMAINS.some(domain => 
+        parentHost === domain || parentHost.endsWith('.' + domain)
+      );
+      if (isAllowedParent) {
+        return { allowed: true, reason: 'Embedded on allowed domain' };
+      }
+      return { allowed: false, reason: `Embedding not authorized from ${parentHost}` };
+    } catch {
+      // Cross-origin iframe - check referrer as fallback
+      const referrer = document.referrer;
+      if (referrer) {
+        try {
+          const referrerHost = new URL(referrer).hostname;
+          const isAllowedReferrer = ALLOWED_DOMAINS.some(domain => 
+            referrerHost === domain || referrerHost.endsWith('.' + domain)
+          );
+          if (isAllowedReferrer) {
+            return { allowed: true, reason: 'Valid referrer from allowed domain' };
+          }
+          return { allowed: false, reason: `Referrer ${referrerHost} not authorized` };
+        } catch {
+          return { allowed: false, reason: 'Invalid referrer' };
+        }
+      }
+      return { allowed: false, reason: 'No referrer - embedding not authorized' };
+    }
+  } catch {
+    return { allowed: false, reason: 'Security check failed' };
+  }
+};
 
 const Watch = () => {
   const location = useLocation();
@@ -36,6 +97,7 @@ const Watch = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [isPiPSupported, setIsPiPSupported] = useState(false);
   const [isPiPActive, setIsPiPActive] = useState(false);
+  const [accessDenied, setAccessDenied] = useState<string | null>(null);
 
   const stopAutoRetry = useCallback(() => {
     if (retryIntervalRef.current) {
@@ -52,13 +114,20 @@ const Watch = () => {
   }, [stopAutoRetry]);
 
   const initPlayer = useCallback(async () => {
+    // Security check - verify domain access
+    const accessCheck = checkDomainAccess();
+    if (!accessCheck.allowed) {
+      setAccessDenied(accessCheck.reason);
+      setIsLoading(false);
+      return;
+    }
+
     if (!playerContainerRef.current || !streamUrl) {
       setError("No stream URL provided");
       setIsLoading(false);
       return;
     }
 
-    // Cleanup previous player
     if (playerRef.current) {
       playerRef.current.destroy();
       playerRef.current = null;
@@ -78,7 +147,6 @@ const Watch = () => {
         playerContainerRef.current.innerHTML = '';
       }
 
-      // Check PiP support
       setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
 
       const player = new Clappr.default.Player({
@@ -117,25 +185,27 @@ const Watch = () => {
             setIsLoading(false);
             
             // Extract quality levels from HLS playback
-            try {
-              const playback = player.core?.getCurrentPlayback?.();
-              if (playback && playback.hls) {
-                const hls = playback.hls;
-                const levels = hls.levels || [];
-                const qualityList: QualityLevel[] = levels.map((level: any, index: number) => ({
-                  id: index,
-                  label: level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`,
-                }));
-                qualityList.sort((a, b) => {
-                  const heightA = parseInt(a.label) || 0;
-                  const heightB = parseInt(b.label) || 0;
-                  return heightB - heightA;
-                });
-                setQualities(qualityList);
+            setTimeout(() => {
+              try {
+                const playback = player.core?.getCurrentPlayback?.();
+                if (playback && playback.hls) {
+                  const hls = playback.hls;
+                  const levels = hls.levels || [];
+                  if (levels.length > 0) {
+                    const qualityList: QualityLevel[] = levels.map((level: any, index: number) => ({
+                      id: index,
+                      height: level.height || 0,
+                      label: level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`,
+                    }));
+                    // Sort by height descending
+                    qualityList.sort((a, b) => b.height - a.height);
+                    setQualities(qualityList);
+                  }
+                }
+              } catch (err) {
+                console.log('Could not extract qualities:', err);
               }
-            } catch (err) {
-              console.log('Could not extract qualities:', err);
-            }
+            }, 1000);
 
             // Setup PiP listeners
             const videoElement = player.core?.getCurrentPlayback?.()?.el;
@@ -163,7 +233,6 @@ const Watch = () => {
     }
   }, [streamUrl, region, stopAutoRetry, startAutoRetry]);
 
-  // Handle retry count changes
   useEffect(() => {
     if (retryCount > 0) {
       initPlayer();
@@ -221,7 +290,6 @@ const Watch = () => {
     };
   }, [initPlayer, stopAutoRetry]);
 
-  // Hide controls after inactivity
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     
@@ -252,6 +320,24 @@ const Watch = () => {
     const quality = qualities.find(q => q.id === currentQuality);
     return quality?.label || 'Auto';
   };
+
+  // Access denied screen
+  if (accessDenied) {
+    return (
+      <div className="fixed inset-0 w-screen h-screen bg-black flex flex-col items-center justify-center text-center p-6">
+        <div className="bg-destructive/20 rounded-full p-4 mb-4">
+          <ShieldX className="w-10 h-10 text-destructive" />
+        </div>
+        <p className="text-white font-bold text-xl mb-2">Access Denied</p>
+        <p className="text-white/60 text-sm max-w-md mb-4">
+          {accessDenied}
+        </p>
+        <p className="text-white/40 text-xs">
+          This stream is only available on authorized websites.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
@@ -316,11 +402,11 @@ const Watch = () => {
                   {getCurrentQualityLabel()}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-black/90 border-white/20 backdrop-blur-sm">
+              <DropdownMenuContent align="end" className="bg-black border-white/20 z-50">
                 <DropdownMenuItem 
                   onClick={handleAutoQuality}
                   className={cn(
-                    "text-white hover:bg-white/10 cursor-pointer",
+                    "text-white hover:bg-white/10 cursor-pointer focus:bg-white/10 focus:text-white",
                     currentQuality === -1 && "bg-primary/20"
                   )}
                 >
@@ -331,7 +417,7 @@ const Watch = () => {
                     key={quality.id}
                     onClick={() => handleQualityChange(quality.id)}
                     className={cn(
-                      "text-white hover:bg-white/10 cursor-pointer",
+                      "text-white hover:bg-white/10 cursor-pointer focus:bg-white/10 focus:text-white",
                       currentQuality === quality.id && "bg-primary/20"
                     )}
                   >
