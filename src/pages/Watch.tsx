@@ -19,15 +19,8 @@ interface QualityLevel {
 
 const AUTO_RETRY_INTERVAL = 10000;
 
-const ALLOWED_PARENT_DOMAINS = [
-  'cricfoots.com',
-  'www.cricfoots.com',
-  'eplayhd.com',
-  'www.eplayhd.com',
-];
-
-// Check if running inside an iframe from allowed domain
-const checkIframeAccess = (): { isAllowed: boolean; reason: string } => {
+// Check if running inside an iframe from allowed domain (async version that fetches from DB)
+const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
   // Check if we're in an iframe
   const isInIframe = window.self !== window.top;
   
@@ -35,18 +28,20 @@ const checkIframeAccess = (): { isAllowed: boolean; reason: string } => {
     return { isAllowed: false, reason: 'This player can only be accessed via embed.' };
   }
 
+  // Always allow dev/preview domains
+  const isDev = window.location.hostname.includes('localhost') || 
+    window.location.hostname.includes('lovableproject.com') ||
+    window.location.hostname.includes('lovable.app') ||
+    window.location.hostname.includes('vercel.app');
+
+  if (isDev) {
+    return { isAllowed: true, reason: '' };
+  }
+
   try {
-    // Try to get parent origin (will throw if cross-origin without permission)
     const parentOrigin = document.referrer;
     
     if (!parentOrigin) {
-      // In development/preview, allow access
-      if (window.location.hostname.includes('localhost') || 
-          window.location.hostname.includes('lovableproject.com') ||
-          window.location.hostname.includes('lovable.app') ||
-          window.location.hostname.includes('vercel.app')) {
-        return { isAllowed: true, reason: '' };
-      }
       return { isAllowed: false, reason: 'Unable to verify parent origin.' };
     }
 
@@ -54,18 +49,11 @@ const checkIframeAccess = (): { isAllowed: boolean; reason: string } => {
     const parentHostname = parentUrl.hostname;
 
     // Check if parent domain is allowed
-    const isAllowedDomain = ALLOWED_PARENT_DOMAINS.some(domain => 
+    const isAllowedDomain = allowedDomains.some(domain => 
       parentHostname === domain || parentHostname.endsWith('.' + domain)
     );
 
     if (!isAllowedDomain) {
-      // Allow development/preview domains
-      if (parentHostname.includes('localhost') || 
-          parentHostname.includes('lovableproject.com') ||
-          parentHostname.includes('lovable.app') ||
-          parentHostname.includes('vercel.app')) {
-        return { isAllowed: true, reason: '' };
-      }
       return { isAllowed: false, reason: 'Embedding not authorized for this domain.' };
     }
 
@@ -76,17 +64,10 @@ const checkIframeAccess = (): { isAllowed: boolean; reason: string } => {
     if (referrer) {
       try {
         const refUrl = new URL(referrer);
-        const isAllowed = ALLOWED_PARENT_DOMAINS.some(domain => 
+        const isAllowed = allowedDomains.some(domain => 
           refUrl.hostname === domain || refUrl.hostname.endsWith('.' + domain)
         );
         if (isAllowed) {
-          return { isAllowed: true, reason: '' };
-        }
-        // Allow dev domains
-        if (refUrl.hostname.includes('localhost') || 
-            refUrl.hostname.includes('lovableproject.com') ||
-            refUrl.hostname.includes('lovable.app') ||
-            refUrl.hostname.includes('vercel.app')) {
           return { isAllowed: true, reason: '' };
         }
       } catch {
@@ -120,11 +101,36 @@ const Watch = () => {
   const [isPiPActive, setIsPiPActive] = useState(false);
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
 
-  // Check iframe access on mount
+  // Check iframe access on mount - fetch allowed domains from database
   useEffect(() => {
-    const access = checkIframeAccess();
-    setIframeAccess(access);
+    const checkAccess = async () => {
+      try {
+        // Fetch allowed domains from edge function
+        const { data, error: fnError } = await supabase.functions.invoke('get-allowed-domains');
+        
+        if (fnError) {
+          console.error('Failed to fetch allowed domains:', fnError);
+          // Fallback: allow in dev mode, deny otherwise
+          const isDev = window.location.hostname.includes('localhost') || 
+            window.location.hostname.includes('lovableproject.com') ||
+            window.location.hostname.includes('lovable.app') ||
+            window.location.hostname.includes('vercel.app');
+          setIframeAccess({ isAllowed: isDev, reason: isDev ? '' : 'Unable to verify authorization.' });
+        } else {
+          const domains = data?.domains || [];
+          const access = await checkIframeAccessAsync(domains);
+          setIframeAccess(access);
+        }
+      } catch (err) {
+        console.error('Error checking access:', err);
+        setIframeAccess({ isAllowed: false, reason: 'Unable to verify authorization.' });
+      }
+      setIsCheckingAccess(false);
+    };
+
+    checkAccess();
   }, []);
 
   // Fetch stream URL from match data
@@ -429,6 +435,15 @@ const Watch = () => {
     return quality?.label || 'Auto';
   };
 
+  // Show loading while checking access
+  if (isCheckingAccess) {
+    return (
+      <div className="fixed inset-0 w-screen h-screen bg-black flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   // Check iframe access first
   if (iframeAccess && !iframeAccess.isAllowed) {
     return (
@@ -441,7 +456,7 @@ const Watch = () => {
           {iframeAccess.reason}
         </p>
         <p className="text-white/40 text-xs">
-          This player is only available when embedded on cricfoots.com or eplayhd.com
+          This player is only available when embedded on authorized websites.
         </p>
       </div>
     );
