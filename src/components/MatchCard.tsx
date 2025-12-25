@@ -32,18 +32,10 @@ export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
         {/* Team logos */}
         <div className="absolute bottom-4 left-4 right-4 z-20 flex justify-between items-end">
           <div className="w-14 h-14 rounded-full bg-card/80 backdrop-blur flex items-center justify-center border border-border overflow-hidden">
-            {match.team1Flag ? (
-              <img src={match.team1Flag} alt={match.team1} className="w-10 h-10 object-contain" />
-            ) : (
-              <span className="text-lg font-bold text-team">{match.team1.charAt(0)}</span>
-            )}
+            <span className="text-lg font-bold text-team">{match.team1.charAt(0)}</span>
           </div>
           <div className="w-14 h-14 rounded-full bg-card/80 backdrop-blur flex items-center justify-center border border-border overflow-hidden">
-            {match.team2Flag ? (
-              <img src={match.team2Flag} alt={match.team2} className="w-10 h-10 object-contain" />
-            ) : (
-              <span className="text-lg font-bold text-team">{match.team2.charAt(0)}</span>
-            )}
+            <span className="text-lg font-bold text-team">{match.team2.charAt(0)}</span>
           </div>
         </div>
       </div>

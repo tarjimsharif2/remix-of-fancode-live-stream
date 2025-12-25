@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FANCODE_DATA_URL = 'https://raw.githubusercontent.com/byte-capsule/FanCode-Hls-Fetcher/main/Fancode_hls_m3u8.Json';
+const FANCODE_DATA_URL = 'https://raw.githubusercontent.com/drmlive/fancode-live-events/main/fancode.json';
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -15,21 +15,25 @@ serve(async (req) => {
   try {
     console.log('Fetching matches from Fancode...');
     
-    const response = await fetch(FANCODE_DATA_URL);
+    const response = await fetch(FANCODE_DATA_URL, {
+      headers: {
+        'Cache-Control': 'no-cache',
+      },
+    });
     
     if (!response.ok) {
       throw new Error(`Failed to fetch: ${response.status}`);
     }
 
-    const text = await response.text();
-    const data = JSON.parse(text);
+    const data = await response.json();
     
-    console.log(`Fetched ${data.total_mathes || 0} matches`);
+    const totalMatches = data.matches?.length || 0;
+    console.log(`Fetched ${totalMatches} matches`);
 
     return new Response(JSON.stringify({
       success: true,
-      totalMatches: data.total_mathes || 0,
-      lastUpdated: data.last_upaded || null,
+      totalMatches,
+      lastUpdated: data["last update time"] || null,
       matches: data.matches || [],
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
