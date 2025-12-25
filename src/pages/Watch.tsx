@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX, Clock } from "lucide-react";
+import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -102,8 +102,6 @@ const Watch = () => {
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
-  const [matchStartTime, setMatchStartTime] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<{ days: number; hours: number; minutes: number; seconds: number } | null>(null);
 
   // Check iframe access on mount - fetch allowed domains from database
   useEffect(() => {
@@ -172,11 +170,6 @@ const Watch = () => {
         const match = data.matches.find((m: any) => m.match_id?.toString() === matchId);
         
         if (match) {
-          // Store start_time for countdown
-          if (match.start_time) {
-            setMatchStartTime(match.start_time);
-          }
-          
           const inLink = match.adfree_url || match.dai_url;
           if (inLink) {
             const url = region === 'BD' 
@@ -208,68 +201,6 @@ const Watch = () => {
   useEffect(() => {
     fetchStreamUrl();
   }, [fetchStreamUrl]);
-
-  // Countdown timer effect
-  useEffect(() => {
-    if (!matchStartTime || !error) {
-      setCountdown(null);
-      return;
-    }
-
-    const parseStartTime = (timeStr: string): Date | null => {
-      try {
-        // Try parsing various formats
-        // Format: "26th December 2025 3:30 PM" or similar
-        const cleanedStr = timeStr
-          .replace(/(\d+)(st|nd|rd|th)/gi, '$1')
-          .replace(/\s+/g, ' ')
-          .trim();
-        
-        const date = new Date(cleanedStr);
-        if (!isNaN(date.getTime())) {
-          return date;
-        }
-        
-        // Try ISO format
-        const isoDate = new Date(timeStr);
-        if (!isNaN(isoDate.getTime())) {
-          return isoDate;
-        }
-        
-        return null;
-      } catch {
-        return null;
-      }
-    };
-
-    const startDate = parseStartTime(matchStartTime);
-    if (!startDate) {
-      return;
-    }
-
-    const updateCountdown = () => {
-      const now = new Date().getTime();
-      const target = startDate.getTime();
-      const difference = target - now;
-
-      if (difference <= 0) {
-        setCountdown(null);
-        return;
-      }
-
-      const days = Math.floor(difference / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
-
-      setCountdown({ days, hours, minutes, seconds });
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-
-    return () => clearInterval(interval);
-  }, [matchStartTime, error]);
 
   const stopAutoRetry = useCallback(() => {
     if (retryIntervalRef.current) {
@@ -562,45 +493,12 @@ const Watch = () => {
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 z-10 bg-black">
           <div className="bg-amber-500/20 rounded-full p-4 mb-4">
-            <Clock className="w-8 h-8 text-amber-500" />
+            <Globe className="w-8 h-8 text-amber-500" />
           </div>
           <p className="text-white font-medium mb-2">The match has not started yet</p>
           <p className="text-white/60 text-sm mb-4 max-w-md">
             Please wait for the match to begin or check back later.
           </p>
-          
-          {/* Countdown Timer */}
-          {countdown && (
-            <div className="flex gap-3 mb-6">
-              {countdown.days > 0 && (
-                <div className="flex flex-col items-center">
-                  <div className="bg-white/10 rounded-lg px-4 py-2 min-w-[60px]">
-                    <span className="text-2xl font-bold text-white">{countdown.days}</span>
-                  </div>
-                  <span className="text-white/40 text-xs mt-1">Days</span>
-                </div>
-              )}
-              <div className="flex flex-col items-center">
-                <div className="bg-white/10 rounded-lg px-4 py-2 min-w-[60px]">
-                  <span className="text-2xl font-bold text-white">{String(countdown.hours).padStart(2, '0')}</span>
-                </div>
-                <span className="text-white/40 text-xs mt-1">Hours</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <div className="bg-white/10 rounded-lg px-4 py-2 min-w-[60px]">
-                  <span className="text-2xl font-bold text-white">{String(countdown.minutes).padStart(2, '0')}</span>
-                </div>
-                <span className="text-white/40 text-xs mt-1">Mins</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <div className="bg-white/10 rounded-lg px-4 py-2 min-w-[60px]">
-                  <span className="text-2xl font-bold text-white">{String(countdown.seconds).padStart(2, '0')}</span>
-                </div>
-                <span className="text-white/40 text-xs mt-1">Secs</span>
-              </div>
-            </div>
-          )}
-          
           <div className="flex items-center gap-2 text-white/40 text-xs mb-6">
             <RefreshCw className="w-3 h-3 animate-spin" />
             <span>Auto-retrying... (Attempt {retryCount + 1})</span>
