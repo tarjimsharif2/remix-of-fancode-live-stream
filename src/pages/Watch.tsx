@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface QualityLevel {
   id: number;
@@ -19,21 +20,15 @@ interface QualityLevel {
 const AUTO_RETRY_INTERVAL = 10000;
 const ALLOWED_DOMAINS = ['cricfoots.com', 'eplayhd.com', 'localhost', '127.0.0.1'];
 
-// Check if current page is embedded in an allowed domain
 const checkDomainAccess = (): { allowed: boolean; reason: string } => {
   try {
-    // Check if we're in an iframe
     const isInIframe = window.self !== window.top;
-    
-    // Get current hostname
     const currentHost = window.location.hostname;
     
-    // Allow localhost for development
     if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
       return { allowed: true, reason: 'Development mode' };
     }
 
-    // If not in iframe, check if we're on allowed domain directly
     if (!isInIframe) {
       const isAllowedDirect = ALLOWED_DOMAINS.some(domain => 
         currentHost === domain || currentHost.endsWith('.' + domain)
@@ -44,7 +39,6 @@ const checkDomainAccess = (): { allowed: boolean; reason: string } => {
       return { allowed: false, reason: 'Direct access not allowed. Must be embedded on authorized websites.' };
     }
 
-    // If in iframe, try to check parent origin
     try {
       const parentHost = window.parent.location.hostname;
       const isAllowedParent = ALLOWED_DOMAINS.some(domain => 
@@ -55,7 +49,6 @@ const checkDomainAccess = (): { allowed: boolean; reason: string } => {
       }
       return { allowed: false, reason: `Embedding not authorized from ${parentHost}` };
     } catch {
-      // Cross-origin iframe - check referrer as fallback
       const referrer = document.referrer;
       if (referrer) {
         try {
@@ -83,14 +76,16 @@ const Watch = () => {
   const [searchParams] = useSearchParams();
   
   const region: 'BD' | 'IN' = location.pathname.includes('play-bd') ? 'BD' : 'IN';
-  const streamUrl = searchParams.get('url') || '';
+  const matchId = searchParams.get('id') || '';
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
+  const [streamUrl, setStreamUrl] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingStream, setIsFetchingStream] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [showControls, setShowControls] = useState(true);
@@ -98,6 +93,62 @@ const Watch = () => {
   const [isPiPSupported, setIsPiPSupported] = useState(false);
   const [isPiPActive, setIsPiPActive] = useState(false);
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
+
+  // Fetch stream URL from match data
+  const fetchStreamUrl = useCallback(async () => {
+    if (!matchId) {
+      setError("No match ID provided");
+      setIsFetchingStream(false);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsFetchingStream(true);
+    
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('fetch-matches');
+      
+      if (fnError) throw new Error(fnError.message);
+      
+      if (data?.success && data.matches) {
+        const match = data.matches.find((m: any) => m.match_id?.toString() === matchId);
+        
+        if (match) {
+          const inLink = match.adfree_url || match.dai_url;
+          if (inLink) {
+            const url = region === 'BD' 
+              ? inLink.replace('in-mc-fdlive', 'bd-mc-fdlive')
+              : inLink;
+            setStreamUrl(url);
+            setIsFetchingStream(false);
+            return;
+          }
+        }
+        setError("Match not found or stream unavailable");
+      } else {
+        setError("Failed to fetch match data");
+      }
+    } catch (err) {
+      console.error("Error fetching stream:", err);
+      setError("Failed to load stream. Please try again.");
+    }
+    
+    setIsFetchingStream(false);
+    setIsLoading(false);
+  }, [matchId, region]);
+
+  useEffect(() => {
+    // Security check first
+    const accessCheck = checkDomainAccess();
+    if (!accessCheck.allowed) {
+      setAccessDenied(accessCheck.reason);
+      setIsLoading(false);
+      setIsFetchingStream(false);
+      return;
+    }
+    
+    fetchStreamUrl();
+  }, [fetchStreamUrl]);
 
   const stopAutoRetry = useCallback(() => {
     if (retryIntervalRef.current) {
@@ -114,17 +165,7 @@ const Watch = () => {
   }, [stopAutoRetry]);
 
   const initPlayer = useCallback(async () => {
-    // Security check - verify domain access
-    const accessCheck = checkDomainAccess();
-    if (!accessCheck.allowed) {
-      setAccessDenied(accessCheck.reason);
-      setIsLoading(false);
-      return;
-    }
-
     if (!playerContainerRef.current || !streamUrl) {
-      setError("No stream URL provided");
-      setIsLoading(false);
       return;
     }
 
@@ -184,7 +225,6 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            // Extract quality levels from HLS playback
             setTimeout(() => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
@@ -197,7 +237,6 @@ const Watch = () => {
                       height: level.height || 0,
                       label: level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`,
                     }));
-                    // Sort by height descending
                     qualityList.sort((a, b) => b.height - a.height);
                     setQualities(qualityList);
                   }
@@ -207,7 +246,6 @@ const Watch = () => {
               }
             }, 1000);
 
-            // Setup PiP listeners
             const videoElement = player.core?.getCurrentPlayback?.()?.el;
             if (videoElement) {
               videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
@@ -233,11 +271,28 @@ const Watch = () => {
     }
   }, [streamUrl, region, stopAutoRetry, startAutoRetry]);
 
+  // Initialize player when stream URL is available
+  useEffect(() => {
+    if (streamUrl && !isFetchingStream) {
+      initPlayer();
+    }
+  }, [streamUrl, isFetchingStream, initPlayer]);
+
   useEffect(() => {
     if (retryCount > 0) {
       initPlayer();
     }
   }, [retryCount]);
+
+  useEffect(() => {
+    return () => {
+      stopAutoRetry();
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [stopAutoRetry]);
 
   const handleQualityChange = (levelId: number) => {
     try {
@@ -279,18 +334,6 @@ const Watch = () => {
   };
 
   useEffect(() => {
-    initPlayer();
-
-    return () => {
-      stopAutoRetry();
-      if (playerRef.current) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
-    };
-  }, [initPlayer, stopAutoRetry]);
-
-  useEffect(() => {
     let timeout: NodeJS.Timeout;
     
     const handleMouseMove = () => {
@@ -312,7 +355,11 @@ const Watch = () => {
 
   const handleRetry = () => {
     setRetryCount(0);
-    initPlayer();
+    if (!streamUrl) {
+      fetchStreamUrl();
+    } else {
+      initPlayer();
+    }
   };
 
   const getCurrentQualityLabel = () => {
@@ -321,7 +368,6 @@ const Watch = () => {
     return quality?.label || 'Auto';
   };
 
-  // Access denied screen
   if (accessDenied) {
     return (
       <div className="fixed inset-0 w-screen h-screen bg-black flex flex-col items-center justify-center text-center p-6">
@@ -341,10 +387,12 @@ const Watch = () => {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
-      {isLoading && !error && (
+      {(isLoading || isFetchingStream) && !error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-white/70 text-sm">Connecting to {region} stream...</p>
+          <p className="text-white/70 text-sm">
+            {isFetchingStream ? 'Loading stream...' : `Connecting to ${region} stream...`}
+          </p>
         </div>
       )}
 
@@ -369,7 +417,7 @@ const Watch = () => {
       ) : null}
 
       {/* Top Controls */}
-      {!isLoading && !error && (
+      {!isLoading && !isFetchingStream && !error && (
         <div 
           className={cn(
             "absolute top-4 right-4 z-20 flex gap-2 transition-opacity duration-300",
@@ -435,7 +483,7 @@ const Watch = () => {
         ref={playerContainerRef} 
         className={cn(
           "w-full h-full",
-          (isLoading || error) && "invisible"
+          (isLoading || isFetchingStream || error) && "invisible"
         )}
       />
     </div>
