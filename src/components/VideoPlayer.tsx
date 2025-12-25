@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
-import { X, Maximize2, Minimize2, Volume2, VolumeX, Play, Pause } from "lucide-react";
+import { X, Maximize2, Minimize2, Volume2, VolumeX, Play, Pause, RefreshCw, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 
@@ -13,60 +13,97 @@ interface VideoPlayerProps {
 export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
+  const initPlayer = () => {
     const video = videoRef.current;
     if (!video || !streamUrl) return;
 
-    let hls: Hls | null = null;
+    // Cleanup previous instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
 
-    const initPlayer = () => {
-      if (Hls.isSupported()) {
-        hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-        });
+    setIsLoading(true);
+    setError(null);
 
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 15000,
+        fragLoadingTimeOut: 20000,
+      });
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          setIsLoading(false);
-          video.play().then(() => setIsPlaying(true)).catch(console.error);
-        });
+      hlsRef.current = hls;
 
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          console.error("HLS Error:", data);
-          if (data.fatal) {
-            setError("Failed to load stream. Please try again.");
-            setIsLoading(false);
-          }
-        });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl;
-        video.addEventListener('loadedmetadata', () => {
-          setIsLoading(false);
-          video.play().then(() => setIsPlaying(true)).catch(console.error);
-        });
-      } else {
-        setError("HLS streaming not supported in this browser");
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsLoading(false);
-      }
-    };
+        video.play().then(() => setIsPlaying(true)).catch(console.error);
+      });
 
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        console.error("HLS Error:", data);
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            // Stream link may have expired
+            setError("Stream unavailable. The live stream link may have expired. Try refreshing or watch on Fancode directly.");
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            // Try to recover from media errors
+            hls.recoverMediaError();
+          } else {
+            setError("Failed to load stream. Please try again.");
+          }
+          setIsLoading(false);
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = streamUrl;
+      video.addEventListener('loadedmetadata', () => {
+        setIsLoading(false);
+        video.play().then(() => setIsPlaying(true)).catch(console.error);
+      });
+      video.addEventListener('error', () => {
+        setError("Stream unavailable. The live stream link may have expired.");
+        setIsLoading(false);
+      });
+    } else {
+      setError("HLS streaming not supported in this browser");
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     initPlayer();
 
     return () => {
-      if (hls) {
-        hls.destroy();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
       }
     };
-  }, [streamUrl]);
+  }, [streamUrl, retryCount]);
+
+  const handleRetry = () => {
+    setRetryCount((prev) => prev + 1);
+  };
+
+  const openFancode = () => {
+    window.open('https://www.fancode.com', '_blank');
+  };
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -137,16 +174,35 @@ export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps)
 
         {/* Video */}
         <div className="relative aspect-video bg-secondary">
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          {isLoading && !error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+              <p className="text-muted-foreground text-sm">Connecting to stream...</p>
             </div>
           )}
 
           {error ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-              <p className="text-destructive mb-4">{error}</p>
-              <Button onClick={onClose}>Close Player</Button>
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6">
+              <div className="bg-destructive/10 rounded-full p-4 mb-4">
+                <X className="w-8 h-8 text-destructive" />
+              </div>
+              <p className="text-foreground font-medium mb-2">Stream Unavailable</p>
+              <p className="text-muted-foreground text-sm mb-6 max-w-md">
+                {error}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button onClick={handleRetry} variant="outline">
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Retry
+                </Button>
+                <Button onClick={openFancode} variant="default">
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Watch on Fancode
+                </Button>
+                <Button onClick={onClose} variant="secondary">
+                  Close
+                </Button>
+              </div>
             </div>
           ) : (
             <video
@@ -159,7 +215,7 @@ export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps)
         </div>
 
         {/* Controls */}
-        {!error && (
+        {!error && !isLoading && (
           <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background/90 to-transparent p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -179,6 +235,7 @@ export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps)
                 >
                   {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                 </Button>
+                <span className="text-xs text-muted-foreground ml-2">LIVE</span>
               </div>
               <Button
                 variant="ghost"
