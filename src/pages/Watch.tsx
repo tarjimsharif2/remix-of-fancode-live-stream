@@ -280,7 +280,7 @@ const Watch = () => {
         events: {
           onError: (e: any) => {
             console.error('Clappr error:', e);
-            setError(`Stream unavailable. Geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
+            setError('The match has not started yet or the stream is unavailable.');
             setIsLoading(false);
             startAutoRetry();
           },
@@ -325,7 +325,7 @@ const Watch = () => {
       playerRef.current = player;
 
       player.on(Clappr.default.Events.PLAYER_ERROR, () => {
-        setError(`Stream unavailable. Geo-restricted to ${region === 'BD' ? 'Bangladesh' : 'India'}.`);
+        setError('The match has not started yet or the stream is unavailable.');
         setIsLoading(false);
         startAutoRetry();
       });
@@ -492,12 +492,12 @@ const Watch = () => {
 
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 z-10 bg-black">
-          <div className="bg-destructive/20 rounded-full p-4 mb-4">
-            <Globe className="w-8 h-8 text-destructive" />
+          <div className="bg-amber-500/20 rounded-full p-4 mb-4">
+            <Globe className="w-8 h-8 text-amber-500" />
           </div>
-          <p className="text-white font-medium mb-2">Stream Unavailable</p>
+          <p className="text-white font-medium mb-2">The match has not started yet</p>
           <p className="text-white/60 text-sm mb-4 max-w-md">
-            This stream may be geo-restricted or currently offline.
+            Please wait for the match to begin or check back later.
           </p>
           <div className="flex items-center gap-2 text-white/40 text-xs mb-6">
             <RefreshCw className="w-3 h-3 animate-spin" />
