@@ -18,56 +18,22 @@ interface QualityLevel {
 }
 
 const AUTO_RETRY_INTERVAL = 10000;
-const ALLOWED_DOMAINS = ['cricfoots.com', 'eplayhd.com', 'localhost', '127.0.0.1'];
 
-const checkDomainAccess = (): { allowed: boolean; reason: string } => {
+// Client-side check is kept as an extra layer but real validation happens server-side
+const checkClientDomain = (): boolean => {
   try {
-    const isInIframe = window.self !== window.top;
     const currentHost = window.location.hostname;
-    
+    // Allow localhost for development
     if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
-      return { allowed: true, reason: 'Development mode' };
+      return true;
     }
-
-    if (!isInIframe) {
-      const isAllowedDirect = ALLOWED_DOMAINS.some(domain => 
-        currentHost === domain || currentHost.endsWith('.' + domain)
-      );
-      if (isAllowedDirect) {
-        return { allowed: true, reason: 'Direct access on allowed domain' };
-      }
-      return { allowed: false, reason: 'Direct access not allowed. Must be embedded on authorized websites.' };
-    }
-
-    try {
-      const parentHost = window.parent.location.hostname;
-      const isAllowedParent = ALLOWED_DOMAINS.some(domain => 
-        parentHost === domain || parentHost.endsWith('.' + domain)
-      );
-      if (isAllowedParent) {
-        return { allowed: true, reason: 'Embedded on allowed domain' };
-      }
-      return { allowed: false, reason: `Embedding not authorized from ${parentHost}` };
-    } catch {
-      const referrer = document.referrer;
-      if (referrer) {
-        try {
-          const referrerHost = new URL(referrer).hostname;
-          const isAllowedReferrer = ALLOWED_DOMAINS.some(domain => 
-            referrerHost === domain || referrerHost.endsWith('.' + domain)
-          );
-          if (isAllowedReferrer) {
-            return { allowed: true, reason: 'Valid referrer from allowed domain' };
-          }
-          return { allowed: false, reason: `Referrer ${referrerHost} not authorized` };
-        } catch {
-          return { allowed: false, reason: 'Invalid referrer' };
-        }
-      }
-      return { allowed: false, reason: 'No referrer - embedding not authorized' };
-    }
+    // Check if we're on an allowed domain (visual indicator only, server enforces)
+    const allowedDomains = ['cricfoots.com', 'eplayhd.com'];
+    return allowedDomains.some(domain => 
+      currentHost === domain || currentHost.endsWith('.' + domain)
+    );
   } catch {
-    return { allowed: false, reason: 'Security check failed' };
+    return false;
   }
 };
 
@@ -108,7 +74,24 @@ const Watch = () => {
     try {
       const { data, error: fnError } = await supabase.functions.invoke('fetch-matches');
       
-      if (fnError) throw new Error(fnError.message);
+      // Handle unauthorized domain error from server
+      if (fnError) {
+        if (fnError.message?.includes('Unauthorized') || fnError.message?.includes('403')) {
+          setAccessDenied('This stream is only available on authorized websites.');
+          setIsFetchingStream(false);
+          setIsLoading(false);
+          return;
+        }
+        throw new Error(fnError.message);
+      }
+      
+      // Check for server-side auth error
+      if (data?.error === 'Unauthorized domain') {
+        setAccessDenied('This stream is only available on authorized websites.');
+        setIsFetchingStream(false);
+        setIsLoading(false);
+        return;
+      }
       
       if (data?.success && data.matches) {
         const match = data.matches.find((m: any) => m.match_id?.toString() === matchId);
@@ -128,9 +111,14 @@ const Watch = () => {
       } else {
         setError("Failed to fetch match data");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching stream:", err);
-      setError("Failed to load stream. Please try again.");
+      // Check if it's a 403/auth error
+      if (err?.status === 403 || err?.message?.includes('Unauthorized')) {
+        setAccessDenied('This stream is only available on authorized websites.');
+      } else {
+        setError("Failed to load stream. Please try again.");
+      }
     }
     
     setIsFetchingStream(false);
@@ -138,13 +126,9 @@ const Watch = () => {
   }, [matchId, region]);
 
   useEffect(() => {
-    // Security check first
-    const accessCheck = checkDomainAccess();
-    if (!accessCheck.allowed) {
-      setAccessDenied(accessCheck.reason);
-      setIsLoading(false);
-      setIsFetchingStream(false);
-      return;
+    // Client-side visual check (server-side enforces the real security)
+    if (!checkClientDomain()) {
+      console.log('Client domain check failed - server will enforce');
     }
     
     fetchStreamUrl();
