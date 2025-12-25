@@ -122,14 +122,14 @@ function validateAndSanitizeResponse(data: unknown): { matches: Record<string, u
   return result;
 }
 
-// Fetch allowed API origins from database
+// Fetch allowed API origins from database (accepts both 'api' and 'embed' types)
 async function fetchAllowedOrigins(supabase: any): Promise<string[]> {
   try {
     const { data, error } = await supabase
       .from('allowed_domains')
       .select('domain')
       .eq('is_active', true)
-      .eq('domain_type', 'api');
+      .in('domain_type', ['api', 'embed']);
 
     if (error) {
       console.error('Failed to fetch allowed origins from database:', error);
