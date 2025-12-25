@@ -10,10 +10,9 @@ const Index = () => {
   const navigate = useNavigate();
 
   const handleWatch = (match: Match, region: 'BD' | 'IN') => {
-    const streamUrl = region === 'BD' ? match.streamLinkBD : match.streamLinkIN;
-    if (streamUrl) {
+    if (match.matchId) {
       const matchName = `${match.team1} vs ${match.team2}`;
-      navigate(`/watch/${match.id}?region=${region}&stream=${encodeURIComponent(streamUrl)}&match=${encodeURIComponent(matchName)}`);
+      navigate(`/watch/${match.matchId}?region=${region}&match=${encodeURIComponent(matchName)}`);
     }
   };
 

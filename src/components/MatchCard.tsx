@@ -63,7 +63,7 @@ export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
             size="watch"
             className="flex-1"
             onClick={() => onWatch(match, 'BD')}
-            disabled={!match.streamLinkBD}
+            disabled={!match.matchId}
           >
             <Play className="w-4 h-4" />
             Watch BD
@@ -73,7 +73,7 @@ export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
             size="watch"
             className="flex-1"
             onClick={() => onWatch(match, 'IN')}
-            disabled={!match.streamLinkIN}
+            disabled={!match.matchId}
           >
             <Play className="w-4 h-4" />
             Watch IN
