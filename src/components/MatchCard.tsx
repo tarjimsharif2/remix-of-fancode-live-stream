@@ -6,9 +6,10 @@ import { Play } from "lucide-react";
 interface MatchCardProps {
   match: Match;
   index: number;
+  onWatch: (match: Match) => void;
 }
 
-export const MatchCard = ({ match, index }: MatchCardProps) => {
+export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
   return (
     <div
       className="gradient-card rounded-xl overflow-hidden card-hover opacity-0 animate-fade-in border border-border/50"
@@ -16,19 +17,33 @@ export const MatchCard = ({ match, index }: MatchCardProps) => {
     >
       {/* Thumbnail */}
       <div className="relative h-48 md:h-56 bg-secondary overflow-hidden">
+        {match.thumbnail ? (
+          <img
+            src={match.thumbnail}
+            alt={`${match.team1} vs ${match.team2}`}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : null}
         <div className="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent z-10" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-6xl font-bold text-muted-foreground/20">
-            {match.team1.charAt(0)} vs {match.team2.charAt(0)}
-          </div>
-        </div>
-        {/* Team logos placeholder */}
+        
+        {/* Team logos */}
         <div className="absolute bottom-4 left-4 right-4 z-20 flex justify-between items-end">
-          <div className="w-16 h-16 rounded-full bg-card/80 backdrop-blur flex items-center justify-center border border-border">
-            <span className="text-xl font-bold text-team">{match.team1.charAt(0)}</span>
+          <div className="w-14 h-14 rounded-full bg-card/80 backdrop-blur flex items-center justify-center border border-border overflow-hidden">
+            {match.team1Flag ? (
+              <img src={match.team1Flag} alt={match.team1} className="w-10 h-10 object-contain" />
+            ) : (
+              <span className="text-lg font-bold text-team">{match.team1.charAt(0)}</span>
+            )}
           </div>
-          <div className="w-16 h-16 rounded-full bg-card/80 backdrop-blur flex items-center justify-center border border-border">
-            <span className="text-xl font-bold text-team">{match.team2.charAt(0)}</span>
+          <div className="w-14 h-14 rounded-full bg-card/80 backdrop-blur flex items-center justify-center border border-border overflow-hidden">
+            {match.team2Flag ? (
+              <img src={match.team2Flag} alt={match.team2} className="w-10 h-10 object-contain" />
+            ) : (
+              <span className="text-lg font-bold text-team">{match.team2.charAt(0)}</span>
+            )}
           </div>
         </div>
       </div>
@@ -46,16 +61,28 @@ export const MatchCard = ({ match, index }: MatchCardProps) => {
             <span className="text-muted-foreground font-medium">Event:</span> {match.event}
           </p>
           <p className="text-foreground">
-            <span className="text-muted-foreground font-medium">Start:</span> {match.startTime}
+            <span className="text-muted-foreground font-medium">Status:</span> {match.startTime}
           </p>
         </div>
 
         <div className="flex gap-3 pt-2">
-          <Button variant="watch" size="watch" className="flex-1">
+          <Button
+            variant="watch"
+            size="watch"
+            className="flex-1"
+            onClick={() => onWatch(match)}
+            disabled={!match.streamLink}
+          >
             <Play className="w-4 h-4" />
             Watch BD
           </Button>
-          <Button variant="watch" size="watch" className="flex-1">
+          <Button
+            variant="watch"
+            size="watch"
+            className="flex-1"
+            onClick={() => onWatch(match)}
+            disabled={!match.streamLink}
+          >
             <Play className="w-4 h-4" />
             Watch IN
           </Button>
