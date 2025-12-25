@@ -10,9 +10,10 @@ const Index = () => {
   const navigate = useNavigate();
 
   const handleWatch = (match: Match, region: 'BD' | 'IN') => {
-    if (match.matchId) {
+    const streamUrl = region === 'BD' ? match.streamLinkBD : match.streamLinkIN;
+    if (streamUrl) {
       const path = region === 'BD' ? '/fancode/play-bd.php' : '/fancode/play-in.php';
-      navigate(`${path}?id=${match.matchId}`);
+      navigate(`${path}?url=${encodeURIComponent(streamUrl)}`);
     }
   };
 
