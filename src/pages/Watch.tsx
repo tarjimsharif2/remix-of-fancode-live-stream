@@ -250,30 +250,30 @@ const Watch = () => {
           hlsjsConfig: {
             enableWorker: true,
             lowLatencyMode: true,
-            // Ultra-fast startup
-            maxBufferLength: 5,
-            maxMaxBufferLength: 15,
-            maxBufferSize: 20 * 1000 * 1000,
-            maxBufferHole: 0.3,
-            // Start with lowest quality for instant playback
-            startLevel: 0,
-            abrEwmaDefaultEstimate: 3000000,
-            abrBandWidthFactor: 0.9,
-            abrBandWidthUpFactor: 0.6,
-            // Faster fragment loading
-            fragLoadingTimeOut: 5000,
-            fragLoadingMaxRetry: 2,
-            fragLoadingRetryDelay: 300,
-            // Minimal latency for live
-            liveSyncDurationCount: 1,
-            liveMaxLatencyDurationCount: 2,
-            // Faster level switching
-            levelLoadingTimeOut: 5000,
-            levelLoadingMaxRetry: 2,
+            // Fast but stable buffer (avoid stalls)
+            maxBufferLength: 12,
+            maxMaxBufferLength: 30,
+            maxBufferSize: 30 * 1000 * 1000,
+            maxBufferHole: 0.5,
+            // Let ABR pick a good start level
+            startLevel: -1,
+            abrEwmaDefaultEstimate: 4000000,
+            abrBandWidthFactor: 0.95,
+            abrBandWidthUpFactor: 0.7,
+            // Reasonable timeouts
+            fragLoadingTimeOut: 7000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 400,
+            // Live tuning
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 4,
           }
         },
+        hlsPlayback: {
+          preload: true,
+        },
         autoPlay: true,
-        mute: false,
+        mute: true,
         height: '100%',
         width: '100%',
         mediacontrol: {
@@ -295,23 +295,27 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            // Try to extract qualities multiple times as HLS may take time to load levels
+            // Extract qualities from Clappr HLS playback (exposes `levels`)
             const extractQualities = () => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
-                if (playback && playback.hls) {
-                  const hls = playback.hls;
-                  const levels = hls.levels || [];
-                  if (levels.length > 0) {
-                    const qualityList: QualityLevel[] = levels.map((level: any, index: number) => ({
-                      id: index,
-                      height: level.height || 0,
-                      label: level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`,
-                    }));
-                    qualityList.sort((a, b) => b.height - a.height);
-                    setQualities(qualityList);
-                    return true;
-                  }
+                const levels = playback?.levels || [];
+
+                if (Array.isArray(levels) && levels.length > 0) {
+                  const qualityList: QualityLevel[] = levels
+                    .map((lvl: any) => {
+                      const height = lvl?.level?.height || 0;
+                      const bitrate = lvl?.level?.bitrate || 0;
+                      return {
+                        id: lvl?.id,
+                        height,
+                        label: height ? `${height}p` : `${Math.round(bitrate / 1000)}kbps`,
+                      };
+                    })
+                    .sort((a, b) => (b.height || 0) - (a.height || 0));
+
+                  setQualities(qualityList);
+                  return true;
                 }
               } catch (err) {
                 console.log('Could not extract qualities:', err);
@@ -319,13 +323,13 @@ const Watch = () => {
               return false;
             };
 
-            // Try immediately, then retry a few times
+            // Try a few times; levels are filled after manifest/level events
             if (!extractQualities()) {
               setTimeout(() => {
                 if (!extractQualities()) {
-                  setTimeout(() => extractQualities(), 2000);
+                  setTimeout(() => extractQualities(), 1500);
                 }
-              }, 1000);
+              }, 800);
             }
 
             const videoElement = player.core?.getCurrentPlayback?.()?.el;
@@ -379,8 +383,8 @@ const Watch = () => {
   const handleQualityChange = (levelId: number) => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      if (playback && playback.hls) {
-        playback.hls.currentLevel = levelId;
+      if (playback) {
+        playback.currentLevel = levelId;
         setCurrentQuality(levelId);
       }
     } catch (err) {
@@ -391,8 +395,8 @@ const Watch = () => {
   const handleAutoQuality = () => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      if (playback && playback.hls) {
-        playback.hls.currentLevel = -1;
+      if (playback) {
+        playback.currentLevel = -1;
         setCurrentQuality(-1);
       }
     } catch (err) {
