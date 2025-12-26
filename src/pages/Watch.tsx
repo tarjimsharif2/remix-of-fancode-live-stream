@@ -274,6 +274,11 @@ const Watch = () => {
         },
         autoPlay: true,
         mute: false,
+        disableVideoTagContextMenu: true,
+        disableKeyboardShortcuts: true,
+        chromeless: false,
+        allowUserInteraction: false,
+        clickToPause: false,
         height: '100%',
         width: '100%',
         mediacontrol: {
@@ -417,6 +422,47 @@ const Watch = () => {
       console.error('PiP error:', err);
     }
   };
+
+  // Lock to landscape when entering fullscreen on mobile
+  const lockLandscape = async () => {
+    try {
+      if (screen.orientation && (screen.orientation as any).lock) {
+        await (screen.orientation as any).lock('landscape');
+      }
+    } catch (err) {
+      // Orientation lock not supported or failed
+    }
+  };
+
+  const unlockOrientation = () => {
+    try {
+      if (screen.orientation && (screen.orientation as any).unlock) {
+        (screen.orientation as any).unlock();
+      }
+    } catch (err) {
+      // Orientation unlock not supported
+    }
+  };
+
+  // Listen for fullscreen changes to lock/unlock orientation
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFullscreen = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      if (isFullscreen) {
+        lockLandscape();
+      } else {
+        unlockOrientation();
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
