@@ -250,23 +250,26 @@ const Watch = () => {
           hlsjsConfig: {
             enableWorker: true,
             lowLatencyMode: true,
-            // Faster startup: reduce initial buffer requirements
-            maxBufferLength: 10,
-            maxMaxBufferLength: 30,
-            maxBufferSize: 30 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            // Fast start settings
-            startLevel: -1, // Auto-select best starting quality
-            abrEwmaDefaultEstimate: 5000000, // Assume 5Mbps initially
-            abrBandWidthFactor: 0.95,
-            abrBandWidthUpFactor: 0.7,
-            // Reduce fragment loading time
-            fragLoadingTimeOut: 8000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 500,
-            // Start playing earlier
-            liveSyncDurationCount: 2,
-            liveMaxLatencyDurationCount: 4,
+            // Ultra-fast startup
+            maxBufferLength: 5,
+            maxMaxBufferLength: 15,
+            maxBufferSize: 20 * 1000 * 1000,
+            maxBufferHole: 0.3,
+            // Start with lowest quality for instant playback
+            startLevel: 0,
+            abrEwmaDefaultEstimate: 3000000,
+            abrBandWidthFactor: 0.9,
+            abrBandWidthUpFactor: 0.6,
+            // Faster fragment loading
+            fragLoadingTimeOut: 5000,
+            fragLoadingMaxRetry: 2,
+            fragLoadingRetryDelay: 300,
+            // Minimal latency for live
+            liveSyncDurationCount: 1,
+            liveMaxLatencyDurationCount: 2,
+            // Faster level switching
+            levelLoadingTimeOut: 5000,
+            levelLoadingMaxRetry: 2,
           }
         },
         autoPlay: true,
@@ -494,11 +497,8 @@ const Watch = () => {
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
       {(isLoading || isFetchingStream) && !error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black">
-          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="text-white/80 text-sm font-medium">
-            {isFetchingStream ? 'Loading...' : 'Connecting...'}
-          </p>
+        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
