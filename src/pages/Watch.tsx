@@ -292,7 +292,8 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            setTimeout(() => {
+            // Try to extract qualities multiple times as HLS may take time to load levels
+            const extractQualities = () => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
                 if (playback && playback.hls) {
@@ -306,12 +307,23 @@ const Watch = () => {
                     }));
                     qualityList.sort((a, b) => b.height - a.height);
                     setQualities(qualityList);
+                    return true;
                   }
                 }
               } catch (err) {
                 console.log('Could not extract qualities:', err);
               }
-            }, 1000);
+              return false;
+            };
+
+            // Try immediately, then retry a few times
+            if (!extractQualities()) {
+              setTimeout(() => {
+                if (!extractQualities()) {
+                  setTimeout(() => extractQualities(), 2000);
+                }
+              }, 1000);
+            }
 
             const videoElement = player.core?.getCurrentPlayback?.()?.el;
             if (videoElement) {
@@ -529,29 +541,29 @@ const Watch = () => {
             </Button>
           )}
 
-          {qualities.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
-                >
-                  <Settings className="w-4 h-4 mr-2" />
-                  {getCurrentQualityLabel()}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-black border-white/20 z-50">
-                <DropdownMenuItem 
-                  onClick={handleAutoQuality}
-                  className={cn(
-                    "text-white hover:bg-white/10 cursor-pointer focus:bg-white/10 focus:text-white",
-                    currentQuality === -1 && "bg-primary/20"
-                  )}
-                >
-                  Auto
-                </DropdownMenuItem>
-                {qualities.map((quality) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                {getCurrentQualityLabel()}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-black border-white/20 z-50">
+              <DropdownMenuItem 
+                onClick={handleAutoQuality}
+                className={cn(
+                  "text-white hover:bg-white/10 cursor-pointer focus:bg-white/10 focus:text-white",
+                  currentQuality === -1 && "bg-primary/20"
+                )}
+              >
+                Auto
+              </DropdownMenuItem>
+              {qualities.length > 0 ? (
+                qualities.map((quality) => (
                   <DropdownMenuItem
                     key={quality.id}
                     onClick={() => handleQualityChange(quality.id)}
@@ -562,10 +574,17 @@ const Watch = () => {
                   >
                     {quality.label}
                   </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+                ))
+              ) : (
+                <DropdownMenuItem 
+                  disabled 
+                  className="text-white/50 cursor-default"
+                >
+                  Loading qualities...
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
 
