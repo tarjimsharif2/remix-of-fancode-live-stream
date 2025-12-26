@@ -300,23 +300,24 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            // Extract qualities using Clappr's playback levels
+            // Extract qualities from HLS.js instance
             const extractQualities = () => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
-                const levels = playback?.levels;
-
-                if (Array.isArray(levels) && levels.length > 0) {
-                  const qualityList: QualityLevel[] = levels
-                    .map((lvl: any) => ({
-                      id: lvl.id,
-                      height: lvl.level?.height || 0,
-                      label: lvl.label || (lvl.level?.height ? `${lvl.level.height}p` : 'Auto'),
+                const hls = playback?._hls || playback?.hls;
+                
+                if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
+                  const qualityList: QualityLevel[] = hls.levels
+                    .map((lvl: any, index: number) => ({
+                      id: index,
+                      height: lvl.height || 0,
+                      label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
                     }))
-                    .filter(q => q.height > 0)
-                    .sort((a, b) => b.height - a.height);
+                    .filter((q: QualityLevel) => q.height > 0)
+                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
 
                   if (qualityList.length > 0) {
+                    console.log('Extracted qualities:', qualityList);
                     setQualities(qualityList);
                     return true;
                   }
@@ -327,14 +328,14 @@ const Watch = () => {
               return false;
             };
 
-            // Try multiple times with delays
+            // Try multiple times with delays (HLS levels load after manifest)
             const tryExtract = (attempts: number) => {
               if (attempts <= 0) return;
               if (!extractQualities()) {
-                setTimeout(() => tryExtract(attempts - 1), 1000);
+                setTimeout(() => tryExtract(attempts - 1), 800);
               }
             };
-            tryExtract(5);
+            tryExtract(8);
 
             const videoElement = player.core?.getCurrentPlayback?.()?.el;
             if (videoElement) {
@@ -387,8 +388,10 @@ const Watch = () => {
   const handleQualityChange = (levelId: number) => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      if (playback?.setLevel) {
-        playback.setLevel(levelId);
+      const hls = playback?._hls || playback?.hls;
+      if (hls) {
+        console.log('Changing quality to level:', levelId);
+        hls.currentLevel = levelId;
         setCurrentQuality(levelId);
       }
     } catch (err) {
@@ -399,8 +402,10 @@ const Watch = () => {
   const handleAutoQuality = () => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      if (playback?.setLevel) {
-        playback.setLevel(-1);
+      const hls = playback?._hls || playback?.hls;
+      if (hls) {
+        console.log('Setting quality to Auto (-1)');
+        hls.currentLevel = -1;
         setCurrentQuality(-1);
       }
     } catch (err) {
