@@ -300,12 +300,31 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            // Extract qualities from HLS.js instance
+            // Extract qualities (prefer Clappr levels; fallback to HLS.js levels)
             const extractQualities = () => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
-                const hls = playback?._hls || playback?.hls;
-                
+
+                // 1) Clappr playback levels (when exposed)
+                const levels = (playback as any)?.levels;
+                if (Array.isArray(levels) && levels.length > 0) {
+                  const qualityList: QualityLevel[] = levels
+                    .map((lvl: any) => ({
+                      id: typeof lvl?.id === 'number' ? lvl.id : lvl?.levelId,
+                      height: lvl?.level?.height || lvl?.height || 0,
+                      label: lvl?.label || (lvl?.level?.height ? `${lvl.level.height}p` : (lvl?.height ? `${lvl.height}p` : 'Auto')),
+                    }))
+                    .filter((q: QualityLevel) => typeof q.id === 'number' && q.height > 0)
+                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
+
+                  if (qualityList.length > 0) {
+                    setQualities(qualityList);
+                    return true;
+                  }
+                }
+
+                // 2) Hls.js instance (works reliably in iframes)
+                const hls = (playback as any)?._hls || (playback as any)?.hls;
                 if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
                   const qualityList: QualityLevel[] = hls.levels
                     .map((lvl: any, index: number) => ({
@@ -317,7 +336,6 @@ const Watch = () => {
                     .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
 
                   if (qualityList.length > 0) {
-                    console.log('Extracted qualities:', qualityList);
                     setQualities(qualityList);
                     return true;
                   }
@@ -328,7 +346,7 @@ const Watch = () => {
               return false;
             };
 
-            // Try multiple times with delays (HLS levels load after manifest)
+            // Try multiple times with delays (levels load after manifest)
             const tryExtract = (attempts: number) => {
               if (attempts <= 0) return;
               if (!extractQualities()) {
@@ -388,10 +406,21 @@ const Watch = () => {
   const handleQualityChange = (levelId: number) => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      const hls = playback?._hls || playback?.hls;
+
+      // Prefer Clappr's native switching when available
+      if ((playback as any)?.setLevel) {
+        (playback as any).setLevel(levelId);
+        setCurrentQuality(levelId);
+        return;
+      }
+
+      // Fallback: direct Hls.js control
+      const hls = (playback as any)?._hls || (playback as any)?.hls;
       if (hls) {
-        console.log('Changing quality to level:', levelId);
         hls.currentLevel = levelId;
+        // Keep next fragment/load aligned as well
+        if (typeof hls.nextLevel === 'number') hls.nextLevel = levelId;
+        if (typeof hls.loadLevel === 'number') hls.loadLevel = levelId;
         setCurrentQuality(levelId);
       }
     } catch (err) {
@@ -402,10 +431,18 @@ const Watch = () => {
   const handleAutoQuality = () => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      const hls = playback?._hls || playback?.hls;
+
+      if ((playback as any)?.setLevel) {
+        (playback as any).setLevel(-1);
+        setCurrentQuality(-1);
+        return;
+      }
+
+      const hls = (playback as any)?._hls || (playback as any)?.hls;
       if (hls) {
-        console.log('Setting quality to Auto (-1)');
         hls.currentLevel = -1;
+        if (typeof hls.nextLevel === 'number') hls.nextLevel = -1;
+        if (typeof hls.loadLevel === 'number') hls.loadLevel = -1;
         setCurrentQuality(-1);
       }
     } catch (err) {
@@ -606,7 +643,10 @@ const Watch = () => {
                 {getCurrentQualityLabel()}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-black border-white/20 z-50">
+            <DropdownMenuContent
+              align="end"
+              className="bg-black border-white/20 z-50 max-h-[calc(100vh-5rem)] overflow-y-auto overscroll-contain"
+            >
               <DropdownMenuItem 
                 onClick={handleAutoQuality}
                 className={cn(
