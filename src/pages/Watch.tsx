@@ -273,7 +273,7 @@ const Watch = () => {
           preload: true,
         },
         autoPlay: true,
-        mute: true,
+        mute: false,
         height: '100%',
         width: '100%',
         mediacontrol: {
@@ -295,32 +295,23 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            // Extract qualities from HLS.js instance inside Clappr
+            // Extract qualities using Clappr's playback levels
             const extractQualities = () => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
-                // Access the internal HLS.js instance
-                const hls = playback?._hls || playback?.hls;
-                const levels = hls?.levels;
-
-                console.log('HLS levels:', levels);
+                const levels = playback?.levels;
 
                 if (Array.isArray(levels) && levels.length > 0) {
                   const qualityList: QualityLevel[] = levels
-                    .map((lvl: any, index: number) => {
-                      const height = lvl?.height || 0;
-                      const bitrate = lvl?.bitrate || 0;
-                      return {
-                        id: index,
-                        height,
-                        label: height ? `${height}p` : `${Math.round(bitrate / 1000)}kbps`,
-                      };
-                    })
-                    .filter(q => q.height > 0 || q.label !== '0kbps')
-                    .sort((a, b) => (b.height || 0) - (a.height || 0));
+                    .map((lvl: any) => ({
+                      id: lvl.id,
+                      height: lvl.level?.height || 0,
+                      label: lvl.label || (lvl.level?.height ? `${lvl.level.height}p` : 'Auto'),
+                    }))
+                    .filter(q => q.height > 0)
+                    .sort((a, b) => b.height - a.height);
 
                   if (qualityList.length > 0) {
-                    console.log('Quality list:', qualityList);
                     setQualities(qualityList);
                     return true;
                   }
@@ -331,7 +322,7 @@ const Watch = () => {
               return false;
             };
 
-            // Try multiple times with increasing delays
+            // Try multiple times with delays
             const tryExtract = (attempts: number) => {
               if (attempts <= 0) return;
               if (!extractQualities()) {
@@ -391,9 +382,8 @@ const Watch = () => {
   const handleQualityChange = (levelId: number) => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      const hls = playback?._hls || playback?.hls;
-      if (hls) {
-        hls.currentLevel = levelId;
+      if (playback?.setLevel) {
+        playback.setLevel(levelId);
         setCurrentQuality(levelId);
       }
     } catch (err) {
@@ -404,9 +394,8 @@ const Watch = () => {
   const handleAutoQuality = () => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      const hls = playback?._hls || playback?.hls;
-      if (hls) {
-        hls.currentLevel = -1;
+      if (playback?.setLevel) {
+        playback.setLevel(-1);
         setCurrentQuality(-1);
       }
     } catch (err) {
