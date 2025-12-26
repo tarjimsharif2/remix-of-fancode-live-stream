@@ -295,27 +295,35 @@ const Watch = () => {
           onReady: () => {
             setIsLoading(false);
             
-            // Extract qualities from Clappr HLS playback (exposes `levels`)
+            // Extract qualities from HLS.js instance inside Clappr
             const extractQualities = () => {
               try {
                 const playback = player.core?.getCurrentPlayback?.();
-                const levels = playback?.levels || [];
+                // Access the internal HLS.js instance
+                const hls = playback?._hls || playback?.hls;
+                const levels = hls?.levels;
+
+                console.log('HLS levels:', levels);
 
                 if (Array.isArray(levels) && levels.length > 0) {
                   const qualityList: QualityLevel[] = levels
-                    .map((lvl: any) => {
-                      const height = lvl?.level?.height || 0;
-                      const bitrate = lvl?.level?.bitrate || 0;
+                    .map((lvl: any, index: number) => {
+                      const height = lvl?.height || 0;
+                      const bitrate = lvl?.bitrate || 0;
                       return {
-                        id: lvl?.id,
+                        id: index,
                         height,
                         label: height ? `${height}p` : `${Math.round(bitrate / 1000)}kbps`,
                       };
                     })
+                    .filter(q => q.height > 0 || q.label !== '0kbps')
                     .sort((a, b) => (b.height || 0) - (a.height || 0));
 
-                  setQualities(qualityList);
-                  return true;
+                  if (qualityList.length > 0) {
+                    console.log('Quality list:', qualityList);
+                    setQualities(qualityList);
+                    return true;
+                  }
                 }
               } catch (err) {
                 console.log('Could not extract qualities:', err);
@@ -323,14 +331,14 @@ const Watch = () => {
               return false;
             };
 
-            // Try a few times; levels are filled after manifest/level events
-            if (!extractQualities()) {
-              setTimeout(() => {
-                if (!extractQualities()) {
-                  setTimeout(() => extractQualities(), 1500);
-                }
-              }, 800);
-            }
+            // Try multiple times with increasing delays
+            const tryExtract = (attempts: number) => {
+              if (attempts <= 0) return;
+              if (!extractQualities()) {
+                setTimeout(() => tryExtract(attempts - 1), 1000);
+              }
+            };
+            tryExtract(5);
 
             const videoElement = player.core?.getCurrentPlayback?.()?.el;
             if (videoElement) {
@@ -383,8 +391,9 @@ const Watch = () => {
   const handleQualityChange = (levelId: number) => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      if (playback) {
-        playback.currentLevel = levelId;
+      const hls = playback?._hls || playback?.hls;
+      if (hls) {
+        hls.currentLevel = levelId;
         setCurrentQuality(levelId);
       }
     } catch (err) {
@@ -395,8 +404,9 @@ const Watch = () => {
   const handleAutoQuality = () => {
     try {
       const playback = playerRef.current?.core?.getCurrentPlayback?.();
-      if (playback) {
-        playback.currentLevel = -1;
+      const hls = playback?._hls || playback?.hls;
+      if (hls) {
+        hls.currentLevel = -1;
         setCurrentQuality(-1);
       }
     } catch (err) {
