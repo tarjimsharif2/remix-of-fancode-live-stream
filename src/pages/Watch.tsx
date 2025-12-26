@@ -513,10 +513,7 @@ const Watch = () => {
       {/* Top Controls */}
       {!isLoading && !isFetchingStream && !error && (
         <div 
-          className={cn(
-            "absolute top-4 right-4 z-20 flex gap-2 transition-opacity duration-300",
-            showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-          )}
+          className="absolute top-4 right-4 z-20 flex gap-2"
         >
           {isPiPSupported && (
             <Button 
