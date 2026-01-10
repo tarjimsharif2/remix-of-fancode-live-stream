@@ -152,6 +152,7 @@ const CricHdWatch = () => {
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsLoading(false);
+        video.muted = false; // Start unmuted
         video.play().catch(console.error);
         setIsPlaying(true);
 
@@ -182,6 +183,7 @@ const CricHdWatch = () => {
       video.src = proxiedStreamUrl;
       video.addEventListener("loadedmetadata", () => {
         setIsLoading(false);
+        video.muted = false; // Start unmuted
         video.play().catch(console.error);
         setIsPlaying(true);
       });
