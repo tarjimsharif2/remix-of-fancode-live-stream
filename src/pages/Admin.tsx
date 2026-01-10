@@ -71,6 +71,9 @@ const Admin = () => {
   const [dataSourceUrl, setDataSourceUrl] = useState("");
   const [originalDataSourceUrl, setOriginalDataSourceUrl] = useState("");
   const [isSavingUrl, setIsSavingUrl] = useState(false);
+  const [crichdDataSourceUrl, setCrichdDataSourceUrl] = useState("");
+  const [originalCrichdDataSourceUrl, setOriginalCrichdDataSourceUrl] = useState("");
+  const [isSavingCrichdUrl, setIsSavingCrichdUrl] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -127,6 +130,18 @@ const Admin = () => {
       setDataSourceUrl(data.value);
       setOriginalDataSourceUrl(data.value);
     }
+
+    // Fetch CricHd data source URL
+    const { data: crichdData, error: crichdError } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "crichd_data_source_url")
+      .single();
+
+    if (!crichdError && crichdData) {
+      setCrichdDataSourceUrl(crichdData.value);
+      setOriginalCrichdDataSourceUrl(crichdData.value);
+    }
   };
 
   const handleSaveDataSourceUrl = async () => {
@@ -175,6 +190,53 @@ const Admin = () => {
     }
 
     setIsSavingUrl(false);
+  };
+
+  const handleSaveCrichdDataSourceUrl = async () => {
+    const trimmedUrl = crichdDataSourceUrl.trim();
+    
+    if (!trimmedUrl) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      new URL(trimmedUrl);
+    } catch {
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSavingCrichdUrl(true);
+
+    const { error } = await supabase
+      .from("app_settings")
+      .update({ value: trimmedUrl })
+      .eq("key", "crichd_data_source_url");
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save CricHd data source URL",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Success",
+        description: "CricHd data source URL updated successfully",
+      });
+      setOriginalCrichdDataSourceUrl(trimmedUrl);
+    }
+
+    setIsSavingCrichdUrl(false);
   };
 
   const handleAddDomain = async () => {
@@ -657,13 +719,14 @@ const Admin = () => {
               Data Source Settings
             </CardTitle>
             <CardDescription>
-              Configure the GitHub JSON URL for fetching match data
+              Configure the GitHub JSON URLs for fetching data
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* FanCode Data Source */}
               <div className="space-y-2">
-                <Label htmlFor="data-source-url">GitHub JSON URL</Label>
+                <Label htmlFor="data-source-url">FanCode JSON URL</Label>
                 <div className="flex gap-2">
                   <Input
                     id="data-source-url"
@@ -685,7 +748,35 @@ const Admin = () => {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  The edge function will fetch match data from this URL. Changes take effect immediately.
+                  The edge function will fetch FanCode match data from this URL.
+                </p>
+              </div>
+
+              {/* CricHd Data Source */}
+              <div className="space-y-2">
+                <Label htmlFor="crichd-data-source-url">CricHd JSON URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="crichd-data-source-url"
+                    placeholder="https://raw.githubusercontent.com/..."
+                    value={crichdDataSourceUrl}
+                    onChange={(e) => setCrichdDataSourceUrl(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleSaveCrichdDataSourceUrl}
+                    disabled={isSavingCrichdUrl || crichdDataSourceUrl === originalCrichdDataSourceUrl}
+                  >
+                    {isSavingCrichdUrl ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span className="ml-2 hidden sm:inline">Save</span>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The edge function will fetch CricHd channel data from this URL.
                 </p>
               </div>
             </div>
