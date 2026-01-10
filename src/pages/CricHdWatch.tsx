@@ -44,7 +44,7 @@ const CricHdWatch = () => {
   const [channel, setChannel] = useState<CricHdChannel | null>(null);
   const [channelLoading, setChannelLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
