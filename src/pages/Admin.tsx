@@ -36,7 +36,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link } from "lucide-react";
+import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw } from "lucide-react";
 
 interface AllowedDomain {
   id: string;
@@ -48,46 +48,32 @@ interface AllowedDomain {
   updated_at: string;
 }
 
-interface ReferrerDomain {
-  id: string;
-  domain: string;
-  description: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
 type DomainType = 'embed' | 'api';
-type MainTab = 'domains' | 'referrer' | 'settings';
 
 const Admin = () => {
   const [embedDomains, setEmbedDomains] = useState<AllowedDomain[]>([]);
   const [apiDomains, setApiDomains] = useState<AllowedDomain[]>([]);
-  const [referrerDomains, setReferrerDomains] = useState<ReferrerDomain[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [newDomain, setNewDomain] = useState("");
   const [newDescription, setNewDescription] = useState("");
-  const [editingDomain, setEditingDomain] = useState<AllowedDomain | ReferrerDomain | null>(null);
+  const [editingDomain, setEditingDomain] = useState<AllowedDomain | null>(null);
   const [editDomain, setEditDomain] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<DomainType>('embed');
-  const [mainTab, setMainTab] = useState<MainTab>('domains');
   const [dataSourceUrl, setDataSourceUrl] = useState("");
   const [originalDataSourceUrl, setOriginalDataSourceUrl] = useState("");
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [crichdDataSourceUrl, setCrichdDataSourceUrl] = useState("");
   const [originalCrichdDataSourceUrl, setOriginalCrichdDataSourceUrl] = useState("");
   const [isSavingCrichdUrl, setIsSavingCrichdUrl] = useState(false);
-  const [isAddReferrerDialogOpen, setIsAddReferrerDialogOpen] = useState(false);
-  const [newReferrerDomain, setNewReferrerDomain] = useState("");
-  const [newReferrerDescription, setNewReferrerDescription] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -105,7 +91,6 @@ const Admin = () => {
       } else {
         setIsCheckingAuth(false);
         fetchDomains();
-        fetchReferrerDomains();
         fetchDataSourceUrl();
       }
     });
@@ -134,23 +119,6 @@ const Admin = () => {
     setIsLoading(false);
   };
 
-  const fetchReferrerDomains = async () => {
-    const { data, error } = await supabase
-      .from("referrer_domains")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to fetch referrer domains",
-        variant: "destructive",
-      });
-    } else {
-      setReferrerDomains(data || []);
-    }
-  };
-
   const fetchDataSourceUrl = async () => {
     const { data, error } = await supabase
       .from("app_settings")
@@ -163,6 +131,7 @@ const Admin = () => {
       setOriginalDataSourceUrl(data.value);
     }
 
+    // Fetch CricHd data source URL
     const { data: crichdData, error: crichdError } = await supabase
       .from("app_settings")
       .select("value")
@@ -179,14 +148,23 @@ const Admin = () => {
     const trimmedUrl = dataSourceUrl.trim();
     
     if (!trimmedUrl) {
-      toast({ title: "Error", description: "Please enter a valid URL", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
       return;
     }
 
+    // Validate URL format
     try {
       new URL(trimmedUrl);
     } catch {
-      toast({ title: "Error", description: "Please enter a valid URL", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -198,9 +176,16 @@ const Admin = () => {
       .eq("key", "data_source_url");
 
     if (error) {
-      toast({ title: "Error", description: "Failed to save data source URL", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Failed to save data source URL",
+        variant: "destructive",
+      });
     } else {
-      toast({ title: "Success", description: "Data source URL updated successfully" });
+      toast({
+        title: "Success",
+        description: "Data source URL updated successfully",
+      });
       setOriginalDataSourceUrl(trimmedUrl);
     }
 
@@ -211,14 +196,22 @@ const Admin = () => {
     const trimmedUrl = crichdDataSourceUrl.trim();
     
     if (!trimmedUrl) {
-      toast({ title: "Error", description: "Please enter a valid URL", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
       return;
     }
 
     try {
       new URL(trimmedUrl);
     } catch {
-      toast({ title: "Error", description: "Please enter a valid URL", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a valid URL",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -230,9 +223,16 @@ const Admin = () => {
       .eq("key", "crichd_data_source_url");
 
     if (error) {
-      toast({ title: "Error", description: "Failed to save CricHd data source URL", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Failed to save CricHd data source URL",
+        variant: "destructive",
+      });
     } else {
-      toast({ title: "Success", description: "CricHd data source URL updated successfully" });
+      toast({
+        title: "Success",
+        description: "CricHd data source URL updated successfully",
+      });
       setOriginalCrichdDataSourceUrl(trimmedUrl);
     }
 
@@ -243,13 +243,22 @@ const Admin = () => {
     const trimmedDomain = newDomain.trim().toLowerCase();
     
     if (!trimmedDomain) {
-      toast({ title: "Error", description: "Please enter a domain", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a domain",
+        variant: "destructive",
+      });
       return;
     }
 
+    // Basic domain validation
     const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
     if (!domainRegex.test(trimmedDomain)) {
-      toast({ title: "Error", description: "Please enter a valid domain (e.g., example.com)", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a valid domain (e.g., example.com)",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -264,53 +273,27 @@ const Admin = () => {
 
     if (error) {
       if (error.code === "23505") {
-        toast({ title: "Error", description: "This domain already exists", variant: "destructive" });
+        toast({
+          title: "Error",
+          description: "This domain already exists",
+          variant: "destructive",
+        });
       } else {
-        toast({ title: "Error", description: "Failed to add domain", variant: "destructive" });
+        toast({
+          title: "Error",
+          description: "Failed to add domain",
+          variant: "destructive",
+        });
       }
     } else {
-      toast({ title: "Success", description: "Domain added successfully" });
+      toast({
+        title: "Success",
+        description: "Domain added successfully",
+      });
       setNewDomain("");
       setNewDescription("");
       setIsAddDialogOpen(false);
       fetchDomains();
-    }
-  };
-
-  const handleAddReferrerDomain = async () => {
-    const trimmedDomain = newReferrerDomain.trim().toLowerCase();
-    
-    if (!trimmedDomain) {
-      toast({ title: "Error", description: "Please enter a domain", variant: "destructive" });
-      return;
-    }
-
-    const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
-    if (!domainRegex.test(trimmedDomain)) {
-      toast({ title: "Error", description: "Please enter a valid domain (e.g., example.com)", variant: "destructive" });
-      return;
-    }
-
-    const { error } = await supabase
-      .from("referrer_domains")
-      .insert({
-        domain: trimmedDomain,
-        description: newReferrerDescription.trim() || null,
-        is_active: true,
-      });
-
-    if (error) {
-      if (error.code === "23505") {
-        toast({ title: "Error", description: "This referrer domain already exists", variant: "destructive" });
-      } else {
-        toast({ title: "Error", description: "Failed to add referrer domain", variant: "destructive" });
-      }
-    } else {
-      toast({ title: "Success", description: "Referrer domain added successfully" });
-      setNewReferrerDomain("");
-      setNewReferrerDescription("");
-      setIsAddReferrerDialogOpen(false);
-      fetchReferrerDomains();
     }
   };
 
@@ -320,22 +303,26 @@ const Admin = () => {
     const trimmedDomain = editDomain.trim().toLowerCase();
     
     if (!trimmedDomain) {
-      toast({ title: "Error", description: "Please enter a domain", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a domain",
+        variant: "destructive",
+      });
       return;
     }
 
     const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
     if (!domainRegex.test(trimmedDomain)) {
-      toast({ title: "Error", description: "Please enter a valid domain", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please enter a valid domain",
+        variant: "destructive",
+      });
       return;
     }
 
-    // Determine which table to update
-    const isReferrerDomain = !('domain_type' in editingDomain);
-    const tableName = isReferrerDomain ? "referrer_domains" : "allowed_domains";
-
     const { error } = await supabase
-      .from(tableName)
+      .from("allowed_domains")
       .update({
         domain: trimmedDomain,
         description: editDescription.trim() || null,
@@ -344,19 +331,26 @@ const Admin = () => {
 
     if (error) {
       if (error.code === "23505") {
-        toast({ title: "Error", description: "This domain already exists", variant: "destructive" });
+        toast({
+          title: "Error",
+          description: "This domain already exists",
+          variant: "destructive",
+        });
       } else {
-        toast({ title: "Error", description: "Failed to update domain", variant: "destructive" });
+        toast({
+          title: "Error",
+          description: "Failed to update domain",
+          variant: "destructive",
+        });
       }
     } else {
-      toast({ title: "Success", description: "Domain updated successfully" });
+      toast({
+        title: "Success",
+        description: "Domain updated successfully",
+      });
       setEditingDomain(null);
       setIsEditDialogOpen(false);
-      if (isReferrerDomain) {
-        fetchReferrerDomains();
-      } else {
-        fetchDomains();
-      }
+      fetchDomains();
     }
   };
 
@@ -367,28 +361,21 @@ const Admin = () => {
       .eq("id", id);
 
     if (error) {
-      toast({ title: "Error", description: "Failed to update domain status", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Failed to update domain status",
+        variant: "destructive",
+      });
     } else {
       if (type === 'embed') {
         setEmbedDomains(embedDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
       } else {
         setApiDomains(apiDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
       }
-      toast({ title: "Success", description: `Domain ${isActive ? "activated" : "deactivated"}` });
-    }
-  };
-
-  const handleToggleReferrerActive = async (id: string, isActive: boolean) => {
-    const { error } = await supabase
-      .from("referrer_domains")
-      .update({ is_active: isActive })
-      .eq("id", id);
-
-    if (error) {
-      toast({ title: "Error", description: "Failed to update referrer domain status", variant: "destructive" });
-    } else {
-      setReferrerDomains(referrerDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
-      toast({ title: "Success", description: `Referrer domain ${isActive ? "activated" : "deactivated"}` });
+      toast({
+        title: "Success",
+        description: `Domain ${isActive ? "activated" : "deactivated"}`,
+      });
     }
   };
 
@@ -399,24 +386,17 @@ const Admin = () => {
       .eq("id", id);
 
     if (error) {
-      toast({ title: "Error", description: "Failed to delete domain", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Failed to delete domain",
+        variant: "destructive",
+      });
     } else {
-      toast({ title: "Success", description: "Domain deleted successfully" });
+      toast({
+        title: "Success",
+        description: "Domain deleted successfully",
+      });
       fetchDomains();
-    }
-  };
-
-  const handleDeleteReferrerDomain = async (id: string) => {
-    const { error } = await supabase
-      .from("referrer_domains")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      toast({ title: "Error", description: "Failed to delete referrer domain", variant: "destructive" });
-    } else {
-      toast({ title: "Success", description: "Referrer domain deleted successfully" });
-      fetchReferrerDomains();
     }
   };
 
@@ -427,29 +407,51 @@ const Admin = () => {
 
   const handleChangePassword = async () => {
     if (!newPassword || !confirmPassword) {
-      toast({ title: "Error", description: "Please fill in all password fields", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Please fill in all password fields",
+        variant: "destructive",
+      });
       return;
     }
 
     if (newPassword.length < 6) {
-      toast({ title: "Error", description: "New password must be at least 6 characters", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "New password must be at least 6 characters",
+        variant: "destructive",
+      });
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "New passwords do not match",
+        variant: "destructive",
+      });
       return;
     }
 
     setIsChangingPassword(true);
 
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
 
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     } else {
-      toast({ title: "Success", description: "Password changed successfully" });
+      toast({
+        title: "Success",
+        description: "Password changed successfully",
+      });
       setIsPasswordDialogOpen(false);
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     }
@@ -457,7 +459,7 @@ const Admin = () => {
     setIsChangingPassword(false);
   };
 
-  const openEditDialog = (domain: AllowedDomain | ReferrerDomain) => {
+  const openEditDialog = (domain: AllowedDomain) => {
     setEditingDomain(domain);
     setEditDomain(domain.domain);
     setEditDescription(domain.description || "");
@@ -471,6 +473,8 @@ const Admin = () => {
       </div>
     );
   }
+
+  const currentDomains = activeTab === 'embed' ? embedDomains : apiDomains;
 
   const DomainTable = ({ domains, type }: { domains: AllowedDomain[]; type: DomainType }) => (
     <>
@@ -508,7 +512,11 @@ const Admin = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => openEditDialog(domain)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditDialog(domain)}
+                      >
                         <Edit className="w-4 h-4" />
                       </Button>
                       <AlertDialog>
@@ -546,80 +554,6 @@ const Admin = () => {
     </>
   );
 
-  const ReferrerDomainTable = () => (
-    <>
-      {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : referrerDomains.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          No referrer domains added yet. Click "Add Referrer Domain" to get started.
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Domain</TableHead>
-                <TableHead className="hidden sm:table-cell">Description</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {referrerDomains.map((domain) => (
-                <TableRow key={domain.id}>
-                  <TableCell className="font-medium">{domain.domain}</TableCell>
-                  <TableCell className="hidden sm:table-cell text-muted-foreground">
-                    {domain.description || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={domain.is_active}
-                      onCheckedChange={(checked) => handleToggleReferrerActive(domain.id, checked)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => openEditDialog(domain)}>
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Referrer Domain</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete "{domain.domain}"? Users from this domain will no longer be able to access the site.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDeleteReferrerDomain(domain.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </>
-  );
-
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
@@ -630,7 +564,7 @@ const Admin = () => {
             </div>
             <div>
               <h1 className="text-2xl font-bold">Admin Panel</h1>
-              <p className="text-muted-foreground text-sm">Manage domains and settings</p>
+              <p className="text-muted-foreground text-sm">Manage allowed domains</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -644,7 +578,9 @@ const Admin = () => {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Change Password</DialogTitle>
-                  <DialogDescription>Enter your new password below</DialogDescription>
+                  <DialogDescription>
+                    Enter your new password below
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
@@ -687,260 +623,174 @@ const Admin = () => {
           </div>
         </div>
 
-        {/* Main Tabs */}
-        <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as MainTab)} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="domains" className="flex items-center gap-2">
-              <Globe className="w-4 h-4" />
-              <span className="hidden sm:inline">Embed/API</span> Domains
-            </TabsTrigger>
-            <TabsTrigger value="referrer" className="flex items-center gap-2">
-              <Link className="w-4 h-4" />
-              Referrer Domains
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-2">
-              <Database className="w-4 h-4" />
-              Settings
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Embed/API Domains Tab */}
-          <TabsContent value="domains">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Globe className="w-5 h-5" />
-                      Domain Management
-                    </CardTitle>
-                    <CardDescription>
-                      Control which domains can embed the player and access the API
-                    </CardDescription>
-                  </div>
-                  <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Domain
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add New {activeTab === 'embed' ? 'Embed' : 'API'} Domain</DialogTitle>
-                        <DialogDescription>
-                          {activeTab === 'embed' 
-                            ? 'Add a domain that can embed the video player'
-                            : 'Add a domain that can access the fetch-matches API'}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="domain">Domain</Label>
-                          <Input
-                            id="domain"
-                            placeholder="example.com"
-                            value={newDomain}
-                            onChange={(e) => setNewDomain(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="description">Description (optional)</Label>
-                          <Input
-                            id="description"
-                            placeholder="Main streaming site"
-                            value={newDescription}
-                            onChange={(e) => setNewDescription(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleAddDomain}>Add Domain</Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DomainType)} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
-                    <TabsTrigger value="embed" className="flex items-center gap-2">
-                      <Monitor className="w-4 h-4" />
-                      Embed Domains ({embedDomains.length})
-                    </TabsTrigger>
-                    <TabsTrigger value="api" className="flex items-center gap-2">
-                      <Server className="w-4 h-4" />
-                      API Origins ({apiDomains.length})
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="embed">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Domains that can embed the video player in an iframe.
-                    </p>
-                    <DomainTable domains={embedDomains} type="embed" />
-                  </TabsContent>
-                  
-                  <TabsContent value="api">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Domains allowed to access the fetch-matches API endpoint.
-                    </p>
-                    <DomainTable domains={apiDomains} type="api" />
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Referrer Domains Tab */}
-          <TabsContent value="referrer">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Link className="w-5 h-5" />
-                      Referrer Domain Management
-                    </CardTitle>
-                    <CardDescription>
-                      Users can only access the site if they came from these domains. Similar to FanCode referral system.
-                    </CardDescription>
-                  </div>
-                  <Dialog open={isAddReferrerDialogOpen} onOpenChange={setIsAddReferrerDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Referrer Domain
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add New Referrer Domain</DialogTitle>
-                        <DialogDescription>
-                          Add a domain that users must come from to access the site
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="referrer-domain">Domain</Label>
-                          <Input
-                            id="referrer-domain"
-                            placeholder="example.com"
-                            value={newReferrerDomain}
-                            onChange={(e) => setNewReferrerDomain(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="referrer-description">Description (optional)</Label>
-                          <Input
-                            id="referrer-description"
-                            placeholder="Partner website"
-                            value={newReferrerDescription}
-                            onChange={(e) => setNewReferrerDescription(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddReferrerDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleAddReferrerDomain}>Add Referrer Domain</Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Only users arriving from these referrer domains can access the site. Access is cached for 24 hours.
-                </p>
-                <ReferrerDomainTable />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Settings Tab */}
-          <TabsContent value="settings">
-            <Card>
-              <CardHeader>
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Database className="w-5 h-5" />
-                  Data Source Settings
+                  <Globe className="w-5 h-5" />
+                  Domain Management
                 </CardTitle>
                 <CardDescription>
-                  Configure the GitHub JSON URLs for fetching data
+                  Control which domains can embed the player and access the API
                 </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="data-source-url">FanCode JSON URL</Label>
-                    <div className="flex gap-2">
+              </div>
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Domain
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add New {activeTab === 'embed' ? 'Embed' : 'API'} Domain</DialogTitle>
+                    <DialogDescription>
+                      {activeTab === 'embed' 
+                        ? 'Add a domain that can embed the video player'
+                        : 'Add a domain that can access the fetch-matches API'}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="domain">Domain</Label>
                       <Input
-                        id="data-source-url"
-                        placeholder="https://raw.githubusercontent.com/..."
-                        value={dataSourceUrl}
-                        onChange={(e) => setDataSourceUrl(e.target.value)}
-                        className="flex-1"
+                        id="domain"
+                        placeholder="example.com"
+                        value={newDomain}
+                        onChange={(e) => setNewDomain(e.target.value)}
                       />
-                      <Button
-                        onClick={handleSaveDataSourceUrl}
-                        disabled={isSavingUrl || dataSourceUrl === originalDataSourceUrl}
-                      >
-                        {isSavingUrl ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Save className="w-4 h-4" />
-                        )}
-                        <span className="ml-2 hidden sm:inline">Save</span>
-                      </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      The edge function will fetch FanCode match data from this URL.
-                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="description">Description (optional)</Label>
+                      <Input
+                        id="description"
+                        placeholder="Main streaming site"
+                        value={newDescription}
+                        onChange={(e) => setNewDescription(e.target.value)}
+                      />
+                    </div>
                   </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleAddDomain}>Add Domain</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DomainType)} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="embed" className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4" />
+                  Embed Domains ({embedDomains.length})
+                </TabsTrigger>
+                <TabsTrigger value="api" className="flex items-center gap-2">
+                  <Server className="w-4 h-4" />
+                  API Origins ({apiDomains.length})
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="embed">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Domains that can embed the video player in an iframe.
+                </p>
+                <DomainTable domains={embedDomains} type="embed" />
+              </TabsContent>
+              
+              <TabsContent value="api">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Domains allowed to access the fetch-matches API endpoint.
+                </p>
+                <DomainTable domains={apiDomains} type="api" />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="crichd-data-source-url">CricHd JSON URL</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="crichd-data-source-url"
-                        placeholder="https://raw.githubusercontent.com/..."
-                        value={crichdDataSourceUrl}
-                        onChange={(e) => setCrichdDataSourceUrl(e.target.value)}
-                        className="flex-1"
-                      />
-                      <Button
-                        onClick={handleSaveCrichdDataSourceUrl}
-                        disabled={isSavingCrichdUrl || crichdDataSourceUrl === originalCrichdDataSourceUrl}
-                      >
-                        {isSavingCrichdUrl ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Save className="w-4 h-4" />
-                        )}
-                        <span className="ml-2 hidden sm:inline">Save</span>
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      The edge function will fetch CricHd channel data from this URL.
-                    </p>
-                  </div>
+        {/* Data Source Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5" />
+              Data Source Settings
+            </CardTitle>
+            <CardDescription>
+              Configure the GitHub JSON URLs for fetching data
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* FanCode Data Source */}
+              <div className="space-y-2">
+                <Label htmlFor="data-source-url">FanCode JSON URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="data-source-url"
+                    placeholder="https://raw.githubusercontent.com/..."
+                    value={dataSourceUrl}
+                    onChange={(e) => setDataSourceUrl(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleSaveDataSourceUrl}
+                    disabled={isSavingUrl || dataSourceUrl === originalDataSourceUrl}
+                  >
+                    {isSavingUrl ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span className="ml-2 hidden sm:inline">Save</span>
+                  </Button>
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                <p className="text-xs text-muted-foreground">
+                  The edge function will fetch FanCode match data from this URL.
+                </p>
+              </div>
+
+              {/* CricHd Data Source */}
+              <div className="space-y-2">
+                <Label htmlFor="crichd-data-source-url">CricHd JSON URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="crichd-data-source-url"
+                    placeholder="https://raw.githubusercontent.com/..."
+                    value={crichdDataSourceUrl}
+                    onChange={(e) => setCrichdDataSourceUrl(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handleSaveCrichdDataSourceUrl}
+                    disabled={isSavingCrichdUrl || crichdDataSourceUrl === originalCrichdDataSourceUrl}
+                  >
+                    {isSavingCrichdUrl ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span className="ml-2 hidden sm:inline">Save</span>
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The edge function will fetch CricHd channel data from this URL.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Edit Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit Domain</DialogTitle>
-              <DialogDescription>Update the domain details</DialogDescription>
+              <DialogDescription>
+                Update the domain details
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">

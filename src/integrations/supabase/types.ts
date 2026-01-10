@@ -71,33 +71,6 @@ export type Database = {
         }
         Relationships: []
       }
-      referrer_domains: {
-        Row: {
-          created_at: string
-          description: string | null
-          domain: string
-          id: string
-          is_active: boolean
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          domain: string
-          id?: string
-          is_active?: boolean
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          domain?: string
-          id?: string
-          is_active?: boolean
-          updated_at?: string
-        }
-        Relationships: []
-      }
     }
     Views: {
       [_ in never]: never
