@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import Hls from "hls.js";
+import { supabase } from "@/integrations/supabase/client";
+import { CricHdChannel, CricHdResponse } from "@/types/crichd";
 import {
   Play,
   Pause,
@@ -33,16 +35,14 @@ const CricHdWatch = () => {
   const navigate = useNavigate();
 
   const channelId = searchParams.get("id");
-  const channelName = searchParams.get("name") || "Live Channel";
-  const streamUrl = searchParams.get("link");
-  const referer = searchParams.get("referer");
-  const origin = searchParams.get("origin");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [channel, setChannel] = useState<CricHdChannel | null>(null);
+  const [channelLoading, setChannelLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -51,6 +51,43 @@ const CricHdWatch = () => {
   const [showControls, setShowControls] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
+
+  // Fetch channel data by ID
+  useEffect(() => {
+    const fetchChannel = async () => {
+      if (!channelId) {
+        setError("No channel ID provided");
+        setChannelLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke<CricHdResponse>('fetch-crichd-channels');
+
+        if (fnError) {
+          throw new Error(fnError.message);
+        }
+
+        if (data?.success && data.channels) {
+          const foundChannel = data.channels.find(ch => ch.id === channelId);
+          if (foundChannel) {
+            setChannel(foundChannel);
+          } else {
+            setError("Channel not found");
+          }
+        } else {
+          setError(data?.error || "Failed to fetch channels");
+        }
+      } catch (err) {
+        console.error("Error fetching channel:", err);
+        setError(err instanceof Error ? err.message : "Failed to load channel");
+      } finally {
+        setChannelLoading(false);
+      }
+    };
+
+    fetchChannel();
+  }, [channelId]);
 
   const lockLandscape = useCallback(async () => {
     try {
@@ -74,16 +111,17 @@ const CricHdWatch = () => {
 
   // Build proxy URL for the stream
   const getProxyUrl = useCallback((url: string) => {
+    if (!channel) return url;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
-    if (referer) proxyUrl.searchParams.set('referer', referer);
-    if (origin) proxyUrl.searchParams.set('origin', origin);
+    if (channel.referer) proxyUrl.searchParams.set('referer', channel.referer);
+    if (channel.origin) proxyUrl.searchParams.set('origin', channel.origin);
     return proxyUrl.toString();
-  }, [referer, origin]);
+  }, [channel]);
 
   const initPlayer = useCallback(() => {
-    if (!streamUrl || !videoRef.current) return;
+    if (!channel?.link || !videoRef.current) return;
 
     setIsLoading(true);
     setError(null);
@@ -97,7 +135,7 @@ const CricHdWatch = () => {
     const video = videoRef.current;
 
     // Use proxy URL instead of direct stream URL
-    const proxiedStreamUrl = getProxyUrl(streamUrl);
+    const proxiedStreamUrl = getProxyUrl(channel.link);
     console.log('Using proxied stream URL:', proxiedStreamUrl);
 
     if (Hls.isSupported()) {
@@ -155,10 +193,12 @@ const CricHdWatch = () => {
       setError("HLS not supported in this browser");
       setIsLoading(false);
     }
-  }, [streamUrl, getProxyUrl]);
+  }, [channel, getProxyUrl]);
 
   useEffect(() => {
-    initPlayer();
+    if (channel) {
+      initPlayer();
+    }
 
     return () => {
       if (hlsRef.current) {
@@ -167,7 +207,7 @@ const CricHdWatch = () => {
       }
       unlockOrientation();
     };
-  }, [initPlayer, unlockOrientation]);
+  }, [channel, initPlayer, unlockOrientation]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -265,13 +305,25 @@ const CricHdWatch = () => {
     navigate("/crichd");
   };
 
-  if (!streamUrl || !channelId) {
+  // Loading channel data
+  if (channelLoading) {
+    return (
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-white">Loading channel...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!channelId || !channel) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center text-white">
           <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
-          <h2 className="text-xl mb-2">Invalid Channel</h2>
-          <p className="text-gray-400 mb-4">No stream URL provided</p>
+          <h2 className="text-xl mb-2">{error || "Invalid Channel"}</h2>
+          <p className="text-gray-400 mb-4">Channel not found or invalid ID</p>
           <Button onClick={handleBack} variant="outline">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Channels
@@ -299,7 +351,7 @@ const CricHdWatch = () => {
       )}
 
       {/* Error state */}
-      {error && (
+      {error && !channelLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="text-center text-white">
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
@@ -346,7 +398,7 @@ const CricHdWatch = () => {
           </Button>
           <div className="flex-1">
             <h1 className="text-white font-semibold text-lg line-clamp-1">
-              {channelName}
+              {channel.name}
             </h1>
           </div>
           <span className="px-2 py-1 text-xs font-bold bg-red-600 text-white rounded-full animate-pulse">
