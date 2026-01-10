@@ -212,8 +212,9 @@ serve(async (req) => {
       // Get base URL for relative paths
       const baseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/') + 1);
       
-      // Rewrite relative URLs in the manifest to use our proxy
-      const proxyBaseUrl = `${url.origin}${url.pathname}`;
+      // Rewrite relative URLs in the manifest to use our public proxy endpoint
+      const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').replace(/^http:/, 'https:');
+      const proxyBaseUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
       const rewrittenManifest = text.split('\n').map(line => {
         const trimmedLine = line.trim();
         
