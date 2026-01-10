@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { CricHdChannel, CricHdResponse } from "@/types/crichd";
@@ -11,7 +11,6 @@ import {
   Maximize,
   Minimize,
   Settings,
-  ArrowLeft,
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
@@ -32,7 +31,6 @@ interface QualityLevel {
 
 const CricHdWatch = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const channelId = searchParams.get("id");
 
@@ -303,9 +301,7 @@ const CricHdWatch = () => {
     }, 3000);
   };
 
-  const handleBack = () => {
-    navigate("/crichd");
-  };
+  // Removed handleBack - back button no longer needed
 
   // Loading channel data
   if (channelLoading) {
@@ -325,11 +321,7 @@ const CricHdWatch = () => {
         <div className="text-center text-white">
           <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
           <h2 className="text-xl mb-2">{error || "Invalid Channel"}</h2>
-          <p className="text-gray-400 mb-4">Channel not found or invalid ID</p>
-          <Button onClick={handleBack} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Channels
-          </Button>
+          <p className="text-gray-400">Channel not found or invalid ID</p>
         </div>
       </div>
     );
@@ -358,16 +350,10 @@ const CricHdWatch = () => {
           <div className="text-center text-white">
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
             <h2 className="text-xl mb-2">{error}</h2>
-            <div className="flex gap-4 justify-center">
-              <Button onClick={handleRetry} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Retry
-              </Button>
-              <Button onClick={handleBack} variant="outline">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-            </div>
+            <Button onClick={handleRetry} variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
           </div>
         </div>
       )}
@@ -389,20 +375,10 @@ const CricHdWatch = () => {
         )}
       >
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 p-4 flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/20"
-            onClick={handleBack}
-          >
-            <ArrowLeft className="w-6 h-6" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-white font-semibold text-lg line-clamp-1">
-              {channel.name}
-            </h1>
-          </div>
+        <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between">
+          <h1 className="text-white font-semibold text-lg line-clamp-1">
+            {channel.name}
+          </h1>
           <span className="px-2 py-1 text-xs font-bold bg-red-600 text-white rounded-full animate-pulse">
             LIVE
           </span>
