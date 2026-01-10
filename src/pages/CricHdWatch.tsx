@@ -72,6 +72,16 @@ const CricHdWatch = () => {
     }
   }, []);
 
+  // Build proxy URL for the stream
+  const getProxyUrl = useCallback((url: string) => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
+    proxyUrl.searchParams.set('url', url);
+    if (referer) proxyUrl.searchParams.set('referer', referer);
+    if (origin) proxyUrl.searchParams.set('origin', origin);
+    return proxyUrl.toString();
+  }, [referer, origin]);
+
   const initPlayer = useCallback(() => {
     if (!streamUrl || !videoRef.current) return;
 
@@ -86,25 +96,20 @@ const CricHdWatch = () => {
 
     const video = videoRef.current;
 
+    // Use proxy URL instead of direct stream URL
+    const proxiedStreamUrl = getProxyUrl(streamUrl);
+    console.log('Using proxied stream URL:', proxiedStreamUrl);
+
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
         backBufferLength: 90,
-        xhrSetup: (xhr, url) => {
-          // Set referer and origin headers if provided
-          if (referer) {
-            xhr.setRequestHeader('Referer', referer);
-          }
-          if (origin) {
-            xhr.setRequestHeader('Origin', origin);
-          }
-        },
       });
 
       hlsRef.current = hls;
 
-      hls.loadSource(streamUrl);
+      hls.loadSource(proxiedStreamUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -135,8 +140,8 @@ const CricHdWatch = () => {
         }
       });
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      // Native HLS support (Safari)
-      video.src = streamUrl;
+      // Native HLS support (Safari) - use proxy URL
+      video.src = proxiedStreamUrl;
       video.addEventListener("loadedmetadata", () => {
         setIsLoading(false);
         video.play().catch(console.error);
@@ -150,7 +155,7 @@ const CricHdWatch = () => {
       setError("HLS not supported in this browser");
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin]);
+  }, [streamUrl, getProxyUrl]);
 
   useEffect(() => {
     initPlayer();
