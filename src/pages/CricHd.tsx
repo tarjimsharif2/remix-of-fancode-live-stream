@@ -10,15 +10,8 @@ const CricHd = () => {
   const navigate = useNavigate();
 
   const handleWatch = (channel: CricHdChannel) => {
-    // Encode the channel data in URL params
-    const params = new URLSearchParams({
-      id: channel.id,
-      name: channel.name,
-      link: channel.link,
-      referer: channel.referer,
-      origin: channel.origin,
-    });
-    navigate(`/crichd/watch?${params.toString()}`);
+    // Navigate with just the channel ID, like FanCode
+    navigate(`/crichd/watch?id=${channel.id}`);
   };
 
   return (
