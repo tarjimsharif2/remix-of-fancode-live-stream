@@ -362,10 +362,10 @@ const CricHdWatch = () => {
         </div>
       )}
 
-      {/* Video player - contained to show full content, responsive on all devices */}
+      {/* Video player - fills entire screen, no black bars */}
       <video
         ref={videoRef}
-        className="w-full h-full object-contain bg-black"
+        className="w-full h-full object-cover"
         playsInline
         muted={isMuted}
         autoPlay
