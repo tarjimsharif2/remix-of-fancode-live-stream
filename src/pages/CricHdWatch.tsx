@@ -13,6 +13,9 @@ import {
   Settings,
   RefreshCw,
   AlertCircle,
+  RectangleHorizontal,
+  Scan,
+  Move,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,6 +52,10 @@ const CricHdWatch = () => {
   const [showControls, setShowControls] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
+  const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
+    const saved = localStorage.getItem('videoDisplayMode');
+    return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
+  });
 
   // Fetch channel data by ID
   useEffect(() => {
@@ -289,6 +296,35 @@ const CricHdWatch = () => {
     return quality?.label || "Auto";
   };
 
+  const handleDisplayModeChange = (mode: 'fit' | 'fill' | 'stretch') => {
+    setDisplayMode(mode);
+    localStorage.setItem('videoDisplayMode', mode);
+  };
+
+  const getDisplayModeClass = () => {
+    switch (displayMode) {
+      case 'fit':
+        return 'object-contain';
+      case 'fill':
+        return 'object-cover';
+      case 'stretch':
+        return 'object-fill';
+      default:
+        return 'object-fill';
+    }
+  };
+
+  const getDisplayModeIcon = () => {
+    switch (displayMode) {
+      case 'fit':
+        return <RectangleHorizontal className="w-4 h-4" />;
+      case 'fill':
+        return <Scan className="w-4 h-4" />;
+      case 'stretch':
+        return <Move className="w-4 h-4" />;
+    }
+  };
+
   const showControlsTemporarily = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) {
@@ -362,10 +398,10 @@ const CricHdWatch = () => {
         </div>
       )}
 
-      {/* Video player - stretches to fill screen (no bars, no crop) */}
+      {/* Video player */}
       <video
         ref={videoRef}
-        className="w-full h-full object-fill"
+        className={cn("w-full h-full", getDisplayModeClass())}
         playsInline
         muted={isMuted}
         autoPlay
@@ -423,6 +459,55 @@ const CricHdWatch = () => {
 
             {/* Right controls */}
             <div className="flex items-center gap-2">
+              {/* Display Mode Toggle */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-white hover:bg-white/20 gap-1"
+                  >
+                    {getDisplayModeIcon()}
+                    <span className="hidden sm:inline capitalize">{displayMode}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="bg-black border-white/20 z-50"
+                >
+                  <DropdownMenuItem
+                    onClick={() => handleDisplayModeChange('fit')}
+                    className={cn(
+                      "text-white hover:bg-white/20 cursor-pointer gap-2",
+                      displayMode === 'fit' && "bg-primary/30"
+                    )}
+                  >
+                    <RectangleHorizontal className="w-4 h-4" />
+                    Fit (no crop)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleDisplayModeChange('fill')}
+                    className={cn(
+                      "text-white hover:bg-white/20 cursor-pointer gap-2",
+                      displayMode === 'fill' && "bg-primary/30"
+                    )}
+                  >
+                    <Scan className="w-4 h-4" />
+                    Fill (crop)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleDisplayModeChange('stretch')}
+                    className={cn(
+                      "text-white hover:bg-white/20 cursor-pointer gap-2",
+                      displayMode === 'stretch' && "bg-primary/30"
+                    )}
+                  >
+                    <Move className="w-4 h-4" />
+                    Stretch (no bars)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               {qualities.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
