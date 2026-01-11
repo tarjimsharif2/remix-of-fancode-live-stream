@@ -67,16 +67,35 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Build headers for the upstream request
+    // Build headers for the upstream request (mimic a real browser as closely as possible)
+    const requestUa = req.headers.get('user-agent') || '';
+    const requestAcceptLang = req.headers.get('accept-language') || '';
+    const requestAccept = req.headers.get('accept') || '';
+    const requestRange = req.headers.get('range') || '';
+
     const upstreamHeaders: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
+      'User-Agent': requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'Accept': requestAccept || 'application/vnd.apple.mpegurl,application/x-mpegURL,application/octet-stream,*/*',
+      'Accept-Language': requestAcceptLang || 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
       'Connection': 'keep-alive',
+      // Common fetch metadata headers some CDNs check
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'cross-site',
     };
 
-    if (referer) {
-      upstreamHeaders['Referer'] = referer;
+    if (requestRange) {
+      upstreamHeaders['Range'] = requestRange;
+    }
+
+    // Some upstreams are strict about trailing slashes on referer.
+    const normalizedReferer = referer ? referer.replace(/\/$/, '') : '';
+
+    if (normalizedReferer) {
+      upstreamHeaders['Referer'] = normalizedReferer;
     }
     if (origin) {
       upstreamHeaders['Origin'] = origin;
