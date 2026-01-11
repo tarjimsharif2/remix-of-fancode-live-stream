@@ -10,6 +10,7 @@ import CricHdWatch from "./pages/CricHdWatch";
 import Admin from "./pages/Admin";
 import AdminAuth from "./pages/AdminAuth";
 import NotFound from "./pages/NotFound";
+import { ReferrerGuard } from "./components/ReferrerGuard";
 
 const queryClient = new QueryClient();
 
@@ -19,17 +20,19 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/fancode/play-bd.php" element={<Watch />} />
-          <Route path="/fancode/play-in.php" element={<Watch />} />
-          <Route path="/crichd" element={<CricHd />} />
-          <Route path="/crichd/watch" element={<CricHdWatch />} />
-          <Route path="/admin" element={<Admin />} />
-          <Route path="/admin/login" element={<AdminAuth />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <ReferrerGuard>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/fancode/play-bd.php" element={<Watch />} />
+            <Route path="/fancode/play-in.php" element={<Watch />} />
+            <Route path="/crichd" element={<CricHd />} />
+            <Route path="/crichd/watch" element={<CricHdWatch />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin/login" element={<AdminAuth />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </ReferrerGuard>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

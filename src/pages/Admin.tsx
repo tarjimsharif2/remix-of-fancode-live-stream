@@ -36,7 +36,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw } from "lucide-react";
+import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link } from "lucide-react";
 
 interface AllowedDomain {
   id: string;
@@ -48,16 +48,26 @@ interface AllowedDomain {
   updated_at: string;
 }
 
-type DomainType = 'embed' | 'api';
+interface ReferrerDomain {
+  id: string;
+  domain: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+type DomainType = 'embed' | 'api' | 'referrer';
 
 const Admin = () => {
   const [embedDomains, setEmbedDomains] = useState<AllowedDomain[]>([]);
   const [apiDomains, setApiDomains] = useState<AllowedDomain[]>([]);
+  const [referrerDomains, setReferrerDomains] = useState<ReferrerDomain[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [newDomain, setNewDomain] = useState("");
   const [newDescription, setNewDescription] = useState("");
-  const [editingDomain, setEditingDomain] = useState<AllowedDomain | null>(null);
+  const [editingDomain, setEditingDomain] = useState<AllowedDomain | ReferrerDomain | null>(null);
   const [editDomain, setEditDomain] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -67,7 +77,7 @@ const Admin = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState<DomainType>('embed');
+  const [activeTab, setActiveTab] = useState<DomainType>('referrer');
   const [dataSourceUrl, setDataSourceUrl] = useState("");
   const [originalDataSourceUrl, setOriginalDataSourceUrl] = useState("");
   const [isSavingUrl, setIsSavingUrl] = useState(false);
@@ -91,6 +101,7 @@ const Admin = () => {
       } else {
         setIsCheckingAuth(false);
         fetchDomains();
+        fetchReferrerDomains();
         fetchDataSourceUrl();
       }
     });
@@ -117,6 +128,23 @@ const Admin = () => {
       setApiDomains(allDomains.filter(d => d.domain_type === 'api'));
     }
     setIsLoading(false);
+  };
+
+  const fetchReferrerDomains = async () => {
+    const { data, error } = await supabase
+      .from("referrer_domains")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch referrer domains",
+        variant: "destructive",
+      });
+    } else {
+      setReferrerDomains((data || []) as ReferrerDomain[]);
+    }
   };
 
   const fetchDataSourceUrl = async () => {
@@ -262,6 +290,43 @@ const Admin = () => {
       return;
     }
 
+    // Use different table for referrer domains
+    if (activeTab === 'referrer') {
+      const { error } = await supabase
+        .from("referrer_domains")
+        .insert({
+          domain: trimmedDomain,
+          description: newDescription.trim() || null,
+          is_active: true,
+        });
+
+      if (error) {
+        if (error.code === "23505") {
+          toast({
+            title: "Error",
+            description: "This domain already exists",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Error",
+            description: "Failed to add referrer domain",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Success",
+          description: "Referrer domain added successfully",
+        });
+        setNewDomain("");
+        setNewDescription("");
+        setIsAddDialogOpen(false);
+        fetchReferrerDomains();
+      }
+      return;
+    }
+
     const { error } = await supabase
       .from("allowed_domains")
       .insert({
@@ -321,8 +386,11 @@ const Admin = () => {
       return;
     }
 
+    // Use different table for referrer domains
+    const tableName = activeTab === 'referrer' ? 'referrer_domains' : 'allowed_domains';
+    
     const { error } = await supabase
-      .from("allowed_domains")
+      .from(tableName)
       .update({
         domain: trimmedDomain,
         description: editDescription.trim() || null,
@@ -350,13 +418,19 @@ const Admin = () => {
       });
       setEditingDomain(null);
       setIsEditDialogOpen(false);
-      fetchDomains();
+      if (activeTab === 'referrer') {
+        fetchReferrerDomains();
+      } else {
+        fetchDomains();
+      }
     }
   };
 
   const handleToggleActive = async (id: string, isActive: boolean, type: DomainType) => {
+    const tableName = type === 'referrer' ? 'referrer_domains' : 'allowed_domains';
+    
     const { error } = await supabase
-      .from("allowed_domains")
+      .from(tableName)
       .update({ is_active: isActive })
       .eq("id", id);
 
@@ -369,8 +443,10 @@ const Admin = () => {
     } else {
       if (type === 'embed') {
         setEmbedDomains(embedDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
-      } else {
+      } else if (type === 'api') {
         setApiDomains(apiDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
+      } else {
+        setReferrerDomains(referrerDomains.map(d => d.id === id ? { ...d, is_active: isActive } : d));
       }
       toast({
         title: "Success",
@@ -379,9 +455,11 @@ const Admin = () => {
     }
   };
 
-  const handleDeleteDomain = async (id: string) => {
+  const handleDeleteDomain = async (id: string, type: DomainType) => {
+    const tableName = type === 'referrer' ? 'referrer_domains' : 'allowed_domains';
+    
     const { error } = await supabase
-      .from("allowed_domains")
+      .from(tableName)
       .delete()
       .eq("id", id);
 
@@ -396,7 +474,11 @@ const Admin = () => {
         title: "Success",
         description: "Domain deleted successfully",
       });
-      fetchDomains();
+      if (type === 'referrer') {
+        fetchReferrerDomains();
+      } else {
+        fetchDomains();
+      }
     }
   };
 
@@ -459,7 +541,7 @@ const Admin = () => {
     setIsChangingPassword(false);
   };
 
-  const openEditDialog = (domain: AllowedDomain) => {
+  const openEditDialog = (domain: AllowedDomain | ReferrerDomain) => {
     setEditingDomain(domain);
     setEditDomain(domain.domain);
     setEditDescription(domain.description || "");
@@ -474,7 +556,83 @@ const Admin = () => {
     );
   }
 
-  const currentDomains = activeTab === 'embed' ? embedDomains : apiDomains;
+  const ReferrerDomainTable = ({ domains }: { domains: ReferrerDomain[] }) => (
+    <>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : domains.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">
+          No referrer domains added yet. Click "Add Domain" to get started.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Domain</TableHead>
+                <TableHead className="hidden sm:table-cell">Description</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {domains.map((domain) => (
+                <TableRow key={domain.id}>
+                  <TableCell className="font-medium">{domain.domain}</TableCell>
+                  <TableCell className="hidden sm:table-cell text-muted-foreground">
+                    {domain.description || "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={domain.is_active}
+                      onCheckedChange={(checked) => handleToggleActive(domain.id, checked, 'referrer')}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditDialog(domain)}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Referrer Domain</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete "{domain.domain}"? This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDeleteDomain(domain.id, 'referrer')}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </>
+  );
 
   const DomainTable = ({ domains, type }: { domains: AllowedDomain[]; type: DomainType }) => (
     <>
@@ -535,7 +693,7 @@ const Admin = () => {
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleDeleteDomain(domain.id)}
+                              onClick={() => handleDeleteDomain(domain.id, type)}
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
                               Delete
@@ -683,16 +841,27 @@ const Admin = () => {
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DomainType)} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsList className="grid w-full grid-cols-3 mb-4">
+                <TabsTrigger value="referrer" className="flex items-center gap-2">
+                  <Link className="w-4 h-4" />
+                  Referrer ({referrerDomains.length})
+                </TabsTrigger>
                 <TabsTrigger value="embed" className="flex items-center gap-2">
                   <Monitor className="w-4 h-4" />
-                  Embed Domains ({embedDomains.length})
+                  Embed ({embedDomains.length})
                 </TabsTrigger>
                 <TabsTrigger value="api" className="flex items-center gap-2">
                   <Server className="w-4 h-4" />
-                  API Origins ({apiDomains.length})
+                  API ({apiDomains.length})
                 </TabsTrigger>
               </TabsList>
+              
+              <TabsContent value="referrer">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Only users coming from these referrer domains can access the site. Admin routes are bypassed.
+                </p>
+                <ReferrerDomainTable domains={referrerDomains} />
+              </TabsContent>
               
               <TabsContent value="embed">
                 <p className="text-sm text-muted-foreground mb-4">
