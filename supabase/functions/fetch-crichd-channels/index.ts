@@ -204,10 +204,16 @@ serve(async (req) => {
     }
     
     const dataSourceUrl = await fetchDataSourceUrl(supabase);
-    console.log(`Fetching CricHd data from: ${dataSourceUrl}`);
+    // Add cache-busting parameter to bypass CDN/GitHub caching
+    const cacheBustUrl = new URL(dataSourceUrl);
+    cacheBustUrl.searchParams.set('_t', Date.now().toString());
+    console.log(`Fetching CricHd data from: ${cacheBustUrl.toString()}`);
     
-    const response = await fetch(dataSourceUrl, {
-      headers: { 'Cache-Control': 'no-cache' },
+    const response = await fetch(cacheBustUrl.toString(), {
+      headers: { 
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+      },
     });
     
     if (!response.ok) {
