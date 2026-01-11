@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { CricHdChannel, CricHdResponse } from "@/types/crichd";
@@ -31,7 +31,6 @@ interface QualityLevel {
 
 const CricHdWatch = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const channelId = searchParams.get("id");
 
@@ -302,9 +301,6 @@ const CricHdWatch = () => {
     }, 3000);
   };
 
-  const handleBack = () => {
-    navigate("/crichd");
-  };
 
   // Loading channel data
   if (channelLoading) {
@@ -325,7 +321,7 @@ const CricHdWatch = () => {
           <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
           <h2 className="text-xl mb-2">{error || "Invalid Channel"}</h2>
           <p className="text-gray-400 mb-4">Channel not found or invalid ID</p>
-          <Button onClick={handleBack} variant="outline">
+          <Button onClick={() => window.history.back()} variant="outline">
             Back to Channels
           </Button>
         </div>
@@ -366,10 +362,10 @@ const CricHdWatch = () => {
         </div>
       )}
 
-      {/* Video player */}
+      {/* Video player - stretched to fill screen */}
       <video
         ref={videoRef}
-        className="w-full h-full object-contain"
+        className="w-full h-full object-cover"
         playsInline
         muted={isMuted}
         autoPlay

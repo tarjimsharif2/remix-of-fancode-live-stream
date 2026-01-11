@@ -23,6 +23,14 @@ export const useReferrerCheck = (): ReferrerCheckResult => {
         return;
       }
 
+      // Check if admin is logged in - they get full access
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setIsAllowed(true);
+        setIsLoading(false);
+        return;
+      }
+
       // Get referrer from document
       const docReferrer = document.referrer;
       setReferrer(docReferrer);
@@ -104,6 +112,15 @@ export const useReferrerCheck = (): ReferrerCheckResult => {
     };
 
     checkReferrer();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        setIsAllowed(true);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, [location.pathname]);
 
   return { isAllowed, isLoading, referrer };
