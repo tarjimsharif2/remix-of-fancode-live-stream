@@ -11,7 +11,6 @@ import {
   Maximize,
   Minimize,
   Settings,
-  ArrowLeft,
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
@@ -327,7 +326,6 @@ const CricHdWatch = () => {
           <h2 className="text-xl mb-2">{error || "Invalid Channel"}</h2>
           <p className="text-gray-400 mb-4">Channel not found or invalid ID</p>
           <Button onClick={handleBack} variant="outline">
-            <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Channels
           </Button>
         </div>
@@ -363,10 +361,6 @@ const CricHdWatch = () => {
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Retry
               </Button>
-              <Button onClick={handleBack} variant="outline">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
             </div>
           </div>
         </div>
@@ -390,14 +384,6 @@ const CricHdWatch = () => {
       >
         {/* Top bar */}
         <div className="absolute top-0 left-0 right-0 p-4 flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/20"
-            onClick={handleBack}
-          >
-            <ArrowLeft className="w-6 h-6" />
-          </Button>
           <div className="flex-1">
             <h1 className="text-white font-semibold text-lg line-clamp-1">
               {channel.name}
