@@ -13,6 +13,7 @@ import {
   Settings,
   RefreshCw,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -358,6 +359,16 @@ const CricHdWatch = () => {
                 Retry
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading spinner overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background z-20">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <p className="text-muted-foreground text-sm">Loading stream...</p>
           </div>
         </div>
       )}
