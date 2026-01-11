@@ -41,6 +41,8 @@ const CricHdWatch = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const MAX_AUTO_RETRIES = 2;
 
   const [channel, setChannel] = useState<CricHdChannel | null>(null);
   const [channelLoading, setChannelLoading] = useState(true);
@@ -52,47 +54,58 @@ const CricHdWatch = () => {
   const [showControls, setShowControls] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
   });
 
   // Fetch channel data by ID
-  useEffect(() => {
-    const fetchChannel = async () => {
-      if (!channelId) {
-        setError("No channel ID provided");
-        setChannelLoading(false);
-        return;
+  const fetchChannelData = useCallback(async (): Promise<CricHdChannel | null> => {
+    if (!channelId) {
+      setError("No channel ID provided");
+      return null;
+    }
+
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke<CricHdResponse>('fetch-crichd-channels');
+
+      if (fnError) {
+        throw new Error(fnError.message);
       }
 
-      try {
-        const { data, error: fnError } = await supabase.functions.invoke<CricHdResponse>('fetch-crichd-channels');
-
-        if (fnError) {
-          throw new Error(fnError.message);
-        }
-
-        if (data?.success && data.channels) {
-          const foundChannel = data.channels.find(ch => ch.id === channelId);
-          if (foundChannel) {
-            setChannel(foundChannel);
-          } else {
-            setError("Channel not found");
-          }
+      if (data?.success && data.channels) {
+        const foundChannel = data.channels.find(ch => ch.id === channelId);
+        if (foundChannel) {
+          return foundChannel;
         } else {
-          setError(data?.error || "Failed to fetch channels");
+          setError("Channel not found");
+          return null;
         }
-      } catch (err) {
-        console.error("Error fetching channel:", err);
-        setError(err instanceof Error ? err.message : "Failed to load channel");
-      } finally {
-        setChannelLoading(false);
+      } else {
+        setError(data?.error || "Failed to fetch channels");
+        return null;
       }
-    };
-
-    fetchChannel();
+    } catch (err) {
+      console.error("Error fetching channel:", err);
+      setError(err instanceof Error ? err.message : "Failed to load channel");
+      return null;
+    }
   }, [channelId]);
+
+  // Initial channel load
+  useEffect(() => {
+    const loadChannel = async () => {
+      setChannelLoading(true);
+      const fetchedChannel = await fetchChannelData();
+      if (fetchedChannel) {
+        setChannel(fetchedChannel);
+      }
+      setChannelLoading(false);
+    };
+    
+    loadChannel();
+  }, [fetchChannelData]);
 
   const lockLandscape = useCallback(async () => {
     try {
@@ -125,6 +138,37 @@ const CricHdWatch = () => {
     return proxyUrl.toString();
   }, [channel]);
 
+  // Auto-refresh channel and retry stream on 403 errors
+  const refreshAndRetry = useCallback(async () => {
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) {
+      console.log('Max auto-retries reached, showing error');
+      setError("Stream unavailable. The channel may be offline or tokens expired.");
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
+
+    retryCountRef.current += 1;
+    console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
+    
+    setIsRefreshing(true);
+    setError(null);
+    
+    // Fetch fresh channel data
+    const freshChannel = await fetchChannelData();
+    
+    if (freshChannel) {
+      console.log('Got fresh channel data, retrying stream...');
+      setChannel(freshChannel);
+      setIsRefreshing(false);
+      // The useEffect watching channel will trigger initPlayer
+    } else {
+      setError("Failed to refresh channel data");
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [fetchChannelData]);
+
   const initPlayer = useCallback(() => {
     if (!channel?.link || !videoRef.current) return;
 
@@ -156,6 +200,8 @@ const CricHdWatch = () => {
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // Reset retry count on successful load
+        retryCountRef.current = 0;
         setIsLoading(false);
         video.muted = false; // Start unmuted
         video.play().catch(console.error);
@@ -179,28 +225,45 @@ const CricHdWatch = () => {
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
           console.error("HLS fatal error:", data);
-          setError("Stream error. Please try again.");
-          setIsLoading(false);
+          
+          // Check if it's a 403/network error - auto-retry with fresh tokens
+          const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+          const isManifestError = data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
+                                  data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+          
+          if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
+            console.log('Network/manifest error detected, auto-refreshing channel...');
+            refreshAndRetry();
+          } else {
+            setError("Stream error. Please try again.");
+            setIsLoading(false);
+          }
         }
       });
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // Native HLS support (Safari) - use proxy URL
       video.src = proxiedStreamUrl;
       video.addEventListener("loadedmetadata", () => {
+        retryCountRef.current = 0;
         setIsLoading(false);
         video.muted = false; // Start unmuted
         video.play().catch(console.error);
         setIsPlaying(true);
       });
       video.addEventListener("error", () => {
-        setError("Stream error. Please try again.");
-        setIsLoading(false);
+        if (retryCountRef.current < MAX_AUTO_RETRIES) {
+          console.log('Video error detected, auto-refreshing channel...');
+          refreshAndRetry();
+        } else {
+          setError("Stream error. Please try again.");
+          setIsLoading(false);
+        }
       });
     } else {
       setError("HLS not supported in this browser");
       setIsLoading(false);
     }
-  }, [channel, getProxyUrl]);
+  }, [channel, getProxyUrl, refreshAndRetry]);
 
   useEffect(() => {
     if (channel) {
@@ -237,8 +300,19 @@ const CricHdWatch = () => {
     };
   }, [lockLandscape, unlockOrientation]);
 
-  const handleRetry = () => {
-    initPlayer();
+  const handleRetry = async () => {
+    // Reset retry count for manual retry
+    retryCountRef.current = 0;
+    setIsRefreshing(true);
+    setError(null);
+    
+    // Fetch fresh channel data
+    const freshChannel = await fetchChannelData();
+    
+    if (freshChannel) {
+      setChannel(freshChannel);
+    }
+    setIsRefreshing(false);
   };
 
   const togglePlay = () => {
@@ -373,11 +447,18 @@ const CricHdWatch = () => {
       onTouchStart={showControlsTemporarily}
     >
       {/* Loading state */}
-      {isLoading && (
+      {(isLoading || isRefreshing) && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-white">Loading stream...</p>
+            <p className="text-white">
+              {isRefreshing ? "Refreshing stream..." : "Loading stream..."}
+            </p>
+            {isRefreshing && retryCountRef.current > 0 && (
+              <p className="text-gray-400 text-sm">
+                Auto-retry {retryCountRef.current}/{MAX_AUTO_RETRIES}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -389,9 +470,9 @@ const CricHdWatch = () => {
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
             <h2 className="text-xl mb-2">{error}</h2>
             <div className="flex gap-4 justify-center">
-              <Button onClick={handleRetry} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Retry
+              <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
+                <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
+                {isRefreshing ? "Refreshing..." : "Refresh & Retry"}
               </Button>
             </div>
           </div>
