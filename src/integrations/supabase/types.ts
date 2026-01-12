@@ -71,6 +71,57 @@ export type Database = {
         }
         Relationships: []
       }
+      custom_channels: {
+        Row: {
+          category: string | null
+          created_at: string
+          custom_cookie: string | null
+          custom_headers: Json | null
+          custom_origin: string | null
+          custom_referer: string | null
+          custom_user_agent: string | null
+          display_order: number | null
+          id: string
+          is_active: boolean
+          logo_url: string | null
+          name: string
+          stream_url: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          custom_cookie?: string | null
+          custom_headers?: Json | null
+          custom_origin?: string | null
+          custom_referer?: string | null
+          custom_user_agent?: string | null
+          display_order?: number | null
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          name: string
+          stream_url: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          custom_cookie?: string | null
+          custom_headers?: Json | null
+          custom_origin?: string | null
+          custom_referer?: string | null
+          custom_user_agent?: string | null
+          display_order?: number | null
+          id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          name?: string
+          stream_url?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       referrer_domains: {
         Row: {
           created_at: string

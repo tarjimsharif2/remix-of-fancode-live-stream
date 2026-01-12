@@ -1,0 +1,604 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
+import Hls from "hls.js";
+import { supabase } from "@/integrations/supabase/client";
+import { CustomChannel } from "@/types/customChannel";
+import {
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  Settings,
+  RefreshCw,
+  AlertCircle,
+  RectangleHorizontal,
+  Scan,
+  Move,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+interface QualityLevel {
+  id: number;
+  height: number;
+  label: string;
+}
+
+const MyPlayWatch = () => {
+  const [searchParams] = useSearchParams();
+  const channelId = searchParams.get("id");
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const MAX_AUTO_RETRIES = 2;
+
+  const [channel, setChannel] = useState<CustomChannel | null>(null);
+  const [channelLoading, setChannelLoading] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showControls, setShowControls] = useState(true);
+  const [qualities, setQualities] = useState<QualityLevel[]>([]);
+  const [currentQuality, setCurrentQuality] = useState<number>(-1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
+    const saved = localStorage.getItem('videoDisplayMode');
+    return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
+  });
+
+  // Fetch channel data by ID
+  const fetchChannelData = useCallback(async (): Promise<CustomChannel | null> => {
+    if (!channelId) {
+      setError("No channel ID provided");
+      return null;
+    }
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('custom_channels')
+        .select('*')
+        .eq('id', channelId)
+        .eq('is_active', true)
+        .single();
+
+      if (fetchError) {
+        if (fetchError.code === 'PGRST116') {
+          setError("Channel not found");
+        } else {
+          throw new Error(fetchError.message);
+        }
+        return null;
+      }
+
+      return data as CustomChannel;
+    } catch (err) {
+      console.error("Error fetching channel:", err);
+      setError(err instanceof Error ? err.message : "Failed to load channel");
+      return null;
+    }
+  }, [channelId]);
+
+  // Initial channel load
+  useEffect(() => {
+    const loadChannel = async () => {
+      setChannelLoading(true);
+      const fetchedChannel = await fetchChannelData();
+      if (fetchedChannel) {
+        setChannel(fetchedChannel);
+      }
+      setChannelLoading(false);
+    };
+    
+    loadChannel();
+  }, [fetchChannelData]);
+
+  const lockLandscape = useCallback(async () => {
+    try {
+      if (screen.orientation && 'lock' in screen.orientation) {
+        await (screen.orientation as any).lock('landscape');
+      }
+    } catch (err) {
+      console.log('Could not lock orientation:', err);
+    }
+  }, []);
+
+  const unlockOrientation = useCallback(() => {
+    try {
+      if (screen.orientation && 'unlock' in screen.orientation) {
+        screen.orientation.unlock();
+      }
+    } catch (err) {
+      console.log('Could not unlock orientation:', err);
+    }
+  }, []);
+
+  // Build proxy URL for the stream with custom headers
+  const getProxyUrl = useCallback((url: string) => {
+    if (!channel) return url;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
+    proxyUrl.searchParams.set('url', url);
+    
+    // Add custom headers
+    if (channel.custom_referer) proxyUrl.searchParams.set('referer', channel.custom_referer);
+    if (channel.custom_origin) proxyUrl.searchParams.set('origin', channel.custom_origin);
+    if (channel.custom_user_agent) proxyUrl.searchParams.set('user_agent', channel.custom_user_agent);
+    if (channel.custom_cookie) proxyUrl.searchParams.set('cookie', channel.custom_cookie);
+    
+    // Add any extra custom headers as JSON
+    if (channel.custom_headers && Object.keys(channel.custom_headers).length > 0) {
+      proxyUrl.searchParams.set('custom_headers', JSON.stringify(channel.custom_headers));
+    }
+    
+    return proxyUrl.toString();
+  }, [channel]);
+
+  // Auto-refresh channel and retry stream on errors
+  const refreshAndRetry = useCallback(async () => {
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) {
+      console.log('Max auto-retries reached, showing error');
+      setError("Stream unavailable. Please try again later.");
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
+
+    retryCountRef.current += 1;
+    console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
+    
+    setIsRefreshing(true);
+    setError(null);
+    
+    const freshChannel = await fetchChannelData();
+    
+    if (freshChannel) {
+      console.log('Got fresh channel data, retrying stream...');
+      setChannel(freshChannel);
+      setIsRefreshing(false);
+    } else {
+      setError("Failed to refresh channel data");
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [fetchChannelData]);
+
+  const initPlayer = useCallback(() => {
+    if (!channel?.stream_url || !videoRef.current) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const video = videoRef.current;
+    const proxiedStreamUrl = getProxyUrl(channel.stream_url);
+    console.log('Using proxied stream URL:', proxiedStreamUrl);
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 90,
+      });
+
+      hlsRef.current = hls;
+      hls.loadSource(proxiedStreamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        retryCountRef.current = 0;
+        setIsLoading(false);
+        video.muted = false;
+        video.play().catch(console.error);
+        setIsPlaying(true);
+
+        if (hls.levels && hls.levels.length > 0) {
+          const qualityList: QualityLevel[] = hls.levels
+            .map((lvl, index) => ({
+              id: index,
+              height: lvl.height || 0,
+              label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
+            }))
+            .filter((q) => q.height > 0)
+            .sort((a, b) => b.height - a.height);
+
+          setQualities(qualityList);
+        }
+      });
+
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          console.error("HLS fatal error:", data);
+          
+          const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+          const isManifestError = data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
+                                  data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+          
+          if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
+            console.log('Network/manifest error detected, auto-refreshing...');
+            refreshAndRetry();
+          } else {
+            setError("Stream error. Please try again.");
+            setIsLoading(false);
+          }
+        }
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = proxiedStreamUrl;
+      video.addEventListener("loadedmetadata", () => {
+        retryCountRef.current = 0;
+        setIsLoading(false);
+        video.muted = false;
+        video.play().catch(console.error);
+        setIsPlaying(true);
+      });
+      video.addEventListener("error", () => {
+        if (retryCountRef.current < MAX_AUTO_RETRIES) {
+          console.log('Video error detected, auto-refreshing...');
+          refreshAndRetry();
+        } else {
+          setError("Stream error. Please try again.");
+          setIsLoading(false);
+        }
+      });
+    } else {
+      setError("HLS not supported in this browser");
+      setIsLoading(false);
+    }
+  }, [channel, getProxyUrl, refreshAndRetry]);
+
+  useEffect(() => {
+    if (channel) {
+      initPlayer();
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      unlockOrientation();
+    };
+  }, [channel, initPlayer, unlockOrientation]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
+      
+      if (isNowFullscreen) {
+        lockLandscape();
+      } else {
+        unlockOrientation();
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, [lockLandscape, unlockOrientation]);
+
+  const handleRetry = async () => {
+    retryCountRef.current = 0;
+    setIsRefreshing(true);
+    setError(null);
+    
+    const freshChannel = await fetchChannelData();
+    
+    if (freshChannel) {
+      setChannel(freshChannel);
+    }
+    setIsRefreshing(false);
+  };
+
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !videoRef.current.muted;
+    setIsMuted(videoRef.current.muted);
+  };
+
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
+
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
+    }
+  };
+
+  const handleQualityChange = (levelId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelId;
+      hlsRef.current.nextLevel = levelId;
+      hlsRef.current.loadLevel = levelId;
+      setCurrentQuality(levelId);
+    }
+  };
+
+  const handleAutoQuality = () => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = -1;
+      hlsRef.current.nextLevel = -1;
+      hlsRef.current.loadLevel = -1;
+      setCurrentQuality(-1);
+    }
+  };
+
+  const getCurrentQualityLabel = () => {
+    if (currentQuality === -1) return "Auto";
+    const quality = qualities.find((q) => q.id === currentQuality);
+    return quality?.label || "Auto";
+  };
+
+  const handleDisplayModeChange = (mode: 'fit' | 'fill' | 'stretch') => {
+    setDisplayMode(mode);
+    localStorage.setItem('videoDisplayMode', mode);
+  };
+
+  const getDisplayModeClass = () => {
+    switch (displayMode) {
+      case 'fit': return 'object-contain';
+      case 'fill': return 'object-cover';
+      case 'stretch': return 'object-fill';
+      default: return 'object-fill';
+    }
+  };
+
+  const getDisplayModeIcon = () => {
+    switch (displayMode) {
+      case 'fit': return <RectangleHorizontal className="w-4 h-4" />;
+      case 'fill': return <Scan className="w-4 h-4" />;
+      case 'stretch': return <Move className="w-4 h-4" />;
+    }
+  };
+
+  const showControlsTemporarily = () => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isPlaying) {
+        setShowControls(false);
+      }
+    }, 3000);
+  };
+
+  if (channelLoading) {
+    return (
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-white">Loading channel...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!channelId || !channel) {
+    return (
+      <div className="fixed inset-0 bg-black flex items-center justify-center">
+        <div className="text-center text-white">
+          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
+          <h2 className="text-xl mb-2">{error || "Invalid Channel"}</h2>
+          <p className="text-gray-400 mb-4">Channel not found or invalid ID</p>
+          <Button onClick={() => window.history.back()} variant="outline">
+            Back to Channels
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="fixed inset-0 bg-black"
+      onMouseMove={showControlsTemporarily}
+      onTouchStart={showControlsTemporarily}
+    >
+      {/* Loading state */}
+      {(isLoading || isRefreshing) && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-white">
+              {isRefreshing ? "Refreshing stream..." : "Loading stream..."}
+            </p>
+            {isRefreshing && retryCountRef.current > 0 && (
+              <p className="text-gray-400 text-sm">
+                Auto-retry {retryCountRef.current}/{MAX_AUTO_RETRIES}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && !channelLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="text-center text-white">
+            <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
+            <h2 className="text-xl mb-2">{error}</h2>
+            <div className="flex gap-4 justify-center">
+              <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
+                <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
+                {isRefreshing ? "Refreshing..." : "Refresh & Retry"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video player */}
+      <video
+        ref={videoRef}
+        className={cn("w-full h-full", getDisplayModeClass())}
+        playsInline
+        muted={isMuted}
+        autoPlay
+      />
+
+      {/* Controls overlay */}
+      <div
+        className={cn(
+          "absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 transition-opacity duration-300",
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+        )}
+      >
+        {/* Top bar */}
+        <div className="absolute top-0 left-0 right-0 p-4 flex items-center gap-4">
+          <div className="flex-1">
+            <h1 className="text-white font-semibold text-lg truncate">
+              {channel.name}
+            </h1>
+          </div>
+        </div>
+
+        {/* Center play button */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="lg"
+            className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30"
+            onClick={togglePlay}
+          >
+            {isPlaying ? (
+              <Pause className="w-8 h-8 text-white" />
+            ) : (
+              <Play className="w-8 h-8 text-white ml-1" />
+            )}
+          </Button>
+        </div>
+
+        {/* Bottom controls */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={togglePlay}>
+            {isPlaying ? (
+              <Pause className="w-5 h-5 text-white" />
+            ) : (
+              <Play className="w-5 h-5 text-white" />
+            )}
+          </Button>
+
+          <Button variant="ghost" size="icon" onClick={toggleMute}>
+            {isMuted ? (
+              <VolumeX className="w-5 h-5 text-white" />
+            ) : (
+              <Volume2 className="w-5 h-5 text-white" />
+            )}
+          </Button>
+
+          <div className="flex-1" />
+
+          {/* Display Mode */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon">
+                {getDisplayModeIcon()}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-black/90 border-white/20">
+              <DropdownMenuItem
+                onClick={() => handleDisplayModeChange('fit')}
+                className={cn("text-white", displayMode === 'fit' && "bg-white/20")}
+              >
+                <RectangleHorizontal className="w-4 h-4 mr-2" />
+                Fit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleDisplayModeChange('fill')}
+                className={cn("text-white", displayMode === 'fill' && "bg-white/20")}
+              >
+                <Scan className="w-4 h-4 mr-2" />
+                Fill
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleDisplayModeChange('stretch')}
+                className={cn("text-white", displayMode === 'stretch' && "bg-white/20")}
+              >
+                <Move className="w-4 h-4 mr-2" />
+                Stretch
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Quality selector */}
+          {qualities.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="text-white gap-2">
+                  <Settings className="w-4 h-4" />
+                  {getCurrentQualityLabel()}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-black/90 border-white/20">
+                <DropdownMenuItem
+                  onClick={handleAutoQuality}
+                  className={cn("text-white", currentQuality === -1 && "bg-white/20")}
+                >
+                  Auto
+                </DropdownMenuItem>
+                {qualities.map((q) => (
+                  <DropdownMenuItem
+                    key={q.id}
+                    onClick={() => handleQualityChange(q.id)}
+                    className={cn("text-white", currentQuality === q.id && "bg-white/20")}
+                  >
+                    {q.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
+            {isFullscreen ? (
+              <Minimize className="w-5 h-5 text-white" />
+            ) : (
+              <Maximize className="w-5 h-5 text-white" />
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MyPlayWatch;
