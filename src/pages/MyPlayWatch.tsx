@@ -187,34 +187,58 @@ const MyPlayWatch = () => {
     }
   }, [fetchChannelData]);
 
+  // Codes that indicate proxy couldn't reach the host; direct might work from client.
+  const PROXY_UNREACHABLE_CODES = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
+
   // If proxy cannot reach the upstream (DNS/SSL/etc), automatically try direct playback once.
-  const maybeFallbackToDirect = useCallback(async () => {
-    if (triedDirectFallbackRef.current) return;
-    const proxyUrl = lastProxyUrlRef.current;
-    if (!proxyUrl) return;
-
-    try {
-      const res = await fetch(proxyUrl, { method: 'GET' });
-      const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) return;
-
-      const body = (await res.json()) as { code?: string; error?: string; details?: string };
-      const code = body?.code || '';
-
-      // These indicate the backend proxy couldn't reach the host; direct might still work from the client.
-      const proxyUnreachableCodes = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
-      if (proxyUnreachableCodes.has(code)) {
-        triedDirectFallbackRef.current = true;
-        setStreamMode('direct');
-        setError(null);
-        setIsLoading(true);
-      }
-    } catch (e) {
-      // ignore
-    }
+  const switchToDirectMode = useCallback(() => {
+    if (triedDirectFallbackRef.current) return false;
+    console.log('Switching to direct stream mode (proxy unreachable)');
+    triedDirectFallbackRef.current = true;
+    setStreamMode('direct');
+    setError(null);
+    setIsLoading(true);
+    return true;
   }, []);
 
-  const initPlayer = useCallback(() => {
+  // Pre-check proxy URL before initializing player
+  const checkProxyAndPlay = useCallback(async (url: string): Promise<{ canUseProxy: boolean; errorCode?: string }> => {
+    if (streamMode === 'direct') return { canUseProxy: false };
+    
+    const proxyUrl = getProxyUrl(url);
+    lastProxyUrlRef.current = proxyUrl;
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const res = await fetch(proxyUrl, { 
+        method: 'GET',
+        signal: controller.signal 
+      });
+      clearTimeout(timeoutId);
+      
+      const ct = res.headers.get('content-type') || '';
+      
+      // If response is JSON, it's an error from the proxy
+      if (ct.includes('application/json')) {
+        const body = await res.json();
+        const code = body?.code || '';
+        console.log('Proxy returned error:', code, body?.error);
+        
+        if (PROXY_UNREACHABLE_CODES.has(code)) {
+          return { canUseProxy: false, errorCode: code };
+        }
+      }
+      
+      return { canUseProxy: true };
+    } catch (e) {
+      console.log('Proxy check failed:', e);
+      return { canUseProxy: false, errorCode: 'FETCH_ERROR' };
+    }
+  }, [getProxyUrl, streamMode]);
+
+  const initPlayer = useCallback(async () => {
     if (!channel?.stream_url || !videoRef.current) return;
 
     setIsLoading(true);
@@ -225,9 +249,22 @@ const MyPlayWatch = () => {
       hlsRef.current = null;
     }
 
+    // If using proxy mode, pre-check if proxy can reach the stream
+    if (streamMode === 'proxy') {
+      const { canUseProxy, errorCode } = await checkProxyAndPlay(channel.stream_url);
+      if (!canUseProxy && errorCode) {
+        console.log(`Proxy failed with ${errorCode}, switching to direct mode`);
+        if (switchToDirectMode()) {
+          return; // Will re-init with direct mode via useEffect
+        }
+      }
+    }
+
     const video = videoRef.current;
+    if (!video) return;
+    
     const streamUrlToPlay = getStreamUrl(channel.stream_url);
-    console.log('Using stream URL:', streamUrlToPlay);
+    console.log('Using stream URL:', streamUrlToPlay, '(mode:', streamMode, ')');
 
     if (Hls.isSupported()) {
       const hls = new Hls({
@@ -270,11 +307,11 @@ const MyPlayWatch = () => {
             data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
             data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
 
-          // If the proxy itself cannot reach the upstream host (DNS/SSL/etc), try direct once.
+          // If proxy mode and network error, try switching to direct
           if ((isNetworkError || isManifestError) && streamMode === 'proxy') {
-            maybeFallbackToDirect().finally(() => {
-              // no-op
-            });
+            if (switchToDirectMode()) {
+              return; // Will re-init via useEffect
+            }
           }
 
           if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
@@ -296,10 +333,11 @@ const MyPlayWatch = () => {
         setIsPlaying(true);
       });
       video.addEventListener("error", () => {
+        // If proxy mode and error, try switching to direct
         if (streamMode === 'proxy') {
-          maybeFallbackToDirect().finally(() => {
-            // no-op
-          });
+          if (switchToDirectMode()) {
+            return;
+          }
         }
 
         if (retryCountRef.current < MAX_AUTO_RETRIES) {
@@ -314,7 +352,7 @@ const MyPlayWatch = () => {
       setError("HLS not supported in this browser");
       setIsLoading(false);
     }
-  }, [channel, getStreamUrl, maybeFallbackToDirect, refreshAndRetry, streamMode]);
+  }, [channel, getStreamUrl, checkProxyAndPlay, switchToDirectMode, refreshAndRetry, streamMode]);
 
   useEffect(() => {
     if (channel) {
@@ -496,6 +534,11 @@ const MyPlayWatch = () => {
             <p className="text-white">
               {isRefreshing ? "Refreshing stream..." : "Loading stream..."}
             </p>
+            {streamMode === 'direct' && (
+              <p className="text-yellow-400 text-sm">
+                Using direct mode (proxy unavailable)
+              </p>
+            )}
             {isRefreshing && retryCountRef.current > 0 && (
               <p className="text-gray-400 text-sm">
                 Auto-retry {retryCountRef.current}/{MAX_AUTO_RETRIES}
@@ -508,9 +551,17 @@ const MyPlayWatch = () => {
       {/* Error state */}
       {error && !channelLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="text-center text-white">
+          <div className="text-center text-white max-w-md px-4">
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
             <h2 className="text-xl mb-2">{error}</h2>
+            {streamMode === 'direct' && (
+              <p className="text-yellow-400 text-sm mb-2">
+                Note: This stream may require specific network access or region.
+              </p>
+            )}
+            <p className="text-gray-400 text-sm mb-4">
+              The stream server may be temporarily unavailable or unreachable from your location.
+            </p>
             <div className="flex gap-4 justify-center">
               <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
                 <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
