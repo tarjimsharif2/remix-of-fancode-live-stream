@@ -34,6 +34,9 @@ serve(async (req) => {
     const streamUrl = url.searchParams.get('url');
     const referer = url.searchParams.get('referer') || '';
     const origin = url.searchParams.get('origin') || '';
+    const customUserAgent = url.searchParams.get('user_agent') || '';
+    const customCookie = url.searchParams.get('cookie') || '';
+    const customHeadersJson = url.searchParams.get('custom_headers') || '';
 
     // Validate required parameters
     if (!streamUrl) {
@@ -74,7 +77,7 @@ serve(async (req) => {
     const requestRange = req.headers.get('range') || '';
 
     const upstreamHeaders: Record<string, string> = {
-      'User-Agent': requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'User-Agent': customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
       'Accept': requestAccept || 'application/vnd.apple.mpegurl,application/x-mpegURL,application/octet-stream,*/*',
       'Accept-Language': requestAcceptLang || 'en-US,en;q=0.9',
       'Accept-Encoding': 'gzip, deflate, br',
@@ -100,9 +103,28 @@ serve(async (req) => {
     if (origin) {
       upstreamHeaders['Origin'] = origin;
     }
+    if (customCookie) {
+      upstreamHeaders['Cookie'] = customCookie;
+    }
+
+    // Parse and apply any additional custom headers
+    if (customHeadersJson) {
+      try {
+        const additionalHeaders = JSON.parse(customHeadersJson);
+        if (typeof additionalHeaders === 'object' && additionalHeaders !== null) {
+          for (const [key, value] of Object.entries(additionalHeaders)) {
+            if (typeof value === 'string') {
+              upstreamHeaders[key] = value;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse custom_headers JSON:', e);
+      }
+    }
 
     console.log(`[${new Date().toISOString()}] Proxying: ${streamUrl}`);
-    console.log(`Headers: Referer=${referer || 'none'}, Origin=${origin || 'none'}`);
+    console.log(`Headers: Referer=${referer || 'none'}, Origin=${origin || 'none'}, UA=${customUserAgent ? 'custom' : 'default'}, Cookie=${customCookie ? 'set' : 'none'}`);
 
     // Fetch the stream with timeout
     const controller = new AbortController();
@@ -234,6 +256,16 @@ serve(async (req) => {
       // Rewrite relative URLs in the manifest to use our public proxy endpoint
       const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').replace(/^http:/, 'https:');
       const proxyBaseUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
+      
+      // Build query params to forward
+      const forwardParams = new URLSearchParams();
+      forwardParams.set('referer', referer);
+      forwardParams.set('origin', origin);
+      if (customUserAgent) forwardParams.set('user_agent', customUserAgent);
+      if (customCookie) forwardParams.set('cookie', customCookie);
+      if (customHeadersJson) forwardParams.set('custom_headers', customHeadersJson);
+      const forwardParamsStr = forwardParams.toString();
+      
       const rewrittenManifest = text.split('\n').map(line => {
         const trimmedLine = line.trim();
         
@@ -244,7 +276,7 @@ serve(async (req) => {
             return line.replace(/URI="([^"]+)"/g, (match, uri) => {
               const absoluteUri = uri.startsWith('http') ? uri : baseUrl + uri;
               const encodedUri = encodeURIComponent(absoluteUri);
-              return `URI="${proxyBaseUrl}?url=${encodedUri}&referer=${encodeURIComponent(referer)}&origin=${encodeURIComponent(origin)}"`;
+              return `URI="${proxyBaseUrl}?url=${encodedUri}&${forwardParamsStr}"`;
             });
           }
           return line;
@@ -254,10 +286,10 @@ serve(async (req) => {
         if (!trimmedLine.startsWith('http')) {
           // Relative URL - make absolute and proxy
           const absoluteUrl = baseUrl + trimmedLine;
-          return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}&referer=${encodeURIComponent(referer)}&origin=${encodeURIComponent(origin)}`;
+          return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}&${forwardParamsStr}`;
         } else {
           // Absolute URL - just proxy
-          return `${proxyBaseUrl}?url=${encodeURIComponent(trimmedLine)}&referer=${encodeURIComponent(referer)}&origin=${encodeURIComponent(origin)}`;
+          return `${proxyBaseUrl}?url=${encodeURIComponent(trimmedLine)}&${forwardParamsStr}`;
         }
       }).join('\n');
 

@@ -7,6 +7,8 @@ import Index from "./pages/Index";
 import Watch from "./pages/Watch";
 import CricHd from "./pages/CricHd";
 import CricHdWatch from "./pages/CricHdWatch";
+import MyPlay from "./pages/MyPlay";
+import MyPlayWatch from "./pages/MyPlayWatch";
 import Admin from "./pages/Admin";
 import AdminAuth from "./pages/AdminAuth";
 import NotFound from "./pages/NotFound";
@@ -27,6 +29,8 @@ const App = () => (
             <Route path="/fancode/play-in.php" element={<Watch />} />
             <Route path="/crichd" element={<CricHd />} />
             <Route path="/crichd/watch" element={<CricHdWatch />} />
+            <Route path="/myplay" element={<MyPlay />} />
+            <Route path="/myplay/watch" element={<MyPlayWatch />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/login" element={<AdminAuth />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

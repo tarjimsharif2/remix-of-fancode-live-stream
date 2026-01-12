@@ -37,6 +37,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link } from "lucide-react";
+import { CustomChannelManager } from "@/components/admin/CustomChannelManager";
 
 interface AllowedDomain {
   id: string;
@@ -780,6 +781,13 @@ const Admin = () => {
             </Button>
           </div>
         </div>
+
+        {/* MyPlay Custom Channels Manager */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <CustomChannelManager />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
