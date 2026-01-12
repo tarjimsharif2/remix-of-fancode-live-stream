@@ -42,6 +42,8 @@ const MyPlayWatch = () => {
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef<number>(0);
   const MAX_AUTO_RETRIES = 2;
+  const lastProxyUrlRef = useRef<string | null>(null);
+  const triedDirectFallbackRef = useRef(false);
 
   const [channel, setChannel] = useState<CustomChannel | null>(null);
   const [channelLoading, setChannelLoading] = useState(true);
@@ -54,6 +56,7 @@ const MyPlayWatch = () => {
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
@@ -94,6 +97,8 @@ const MyPlayWatch = () => {
   // Initial channel load
   useEffect(() => {
     const loadChannel = async () => {
+      triedDirectFallbackRef.current = false;
+      setStreamMode('proxy');
       setChannelLoading(true);
       const fetchedChannel = await fetchChannelData();
       if (fetchedChannel) {
@@ -101,7 +106,7 @@ const MyPlayWatch = () => {
       }
       setChannelLoading(false);
     };
-    
+
     loadChannel();
   }, [fetchChannelData]);
 
@@ -131,20 +136,27 @@ const MyPlayWatch = () => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
-    
+
     // Add custom headers
     if (channel.custom_referer) proxyUrl.searchParams.set('referer', channel.custom_referer);
     if (channel.custom_origin) proxyUrl.searchParams.set('origin', channel.custom_origin);
     if (channel.custom_user_agent) proxyUrl.searchParams.set('user_agent', channel.custom_user_agent);
     if (channel.custom_cookie) proxyUrl.searchParams.set('cookie', channel.custom_cookie);
-    
+
     // Add any extra custom headers as JSON
     if (channel.custom_headers && Object.keys(channel.custom_headers).length > 0) {
       proxyUrl.searchParams.set('custom_headers', JSON.stringify(channel.custom_headers));
     }
-    
+
     return proxyUrl.toString();
   }, [channel]);
+
+  const getStreamUrl = useCallback((url: string) => {
+    if (streamMode === 'direct') return url;
+    const proxied = getProxyUrl(url);
+    lastProxyUrlRef.current = proxied;
+    return proxied;
+  }, [getProxyUrl, streamMode]);
 
   // Auto-refresh channel and retry stream on errors
   const refreshAndRetry = useCallback(async () => {
@@ -158,12 +170,12 @@ const MyPlayWatch = () => {
 
     retryCountRef.current += 1;
     console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
-    
+
     setIsRefreshing(true);
     setError(null);
-    
+
     const freshChannel = await fetchChannelData();
-    
+
     if (freshChannel) {
       console.log('Got fresh channel data, retrying stream...');
       setChannel(freshChannel);
@@ -174,6 +186,33 @@ const MyPlayWatch = () => {
       setIsRefreshing(false);
     }
   }, [fetchChannelData]);
+
+  // If proxy cannot reach the upstream (DNS/SSL/etc), automatically try direct playback once.
+  const maybeFallbackToDirect = useCallback(async () => {
+    if (triedDirectFallbackRef.current) return;
+    const proxyUrl = lastProxyUrlRef.current;
+    if (!proxyUrl) return;
+
+    try {
+      const res = await fetch(proxyUrl, { method: 'GET' });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) return;
+
+      const body = (await res.json()) as { code?: string; error?: string; details?: string };
+      const code = body?.code || '';
+
+      // These indicate the backend proxy couldn't reach the host; direct might still work from the client.
+      const proxyUnreachableCodes = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
+      if (proxyUnreachableCodes.has(code)) {
+        triedDirectFallbackRef.current = true;
+        setStreamMode('direct');
+        setError(null);
+        setIsLoading(true);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   const initPlayer = useCallback(() => {
     if (!channel?.stream_url || !videoRef.current) return;
@@ -187,8 +226,8 @@ const MyPlayWatch = () => {
     }
 
     const video = videoRef.current;
-    const proxiedStreamUrl = getProxyUrl(channel.stream_url);
-    console.log('Using proxied stream URL:', proxiedStreamUrl);
+    const streamUrlToPlay = getStreamUrl(channel.stream_url);
+    console.log('Using stream URL:', streamUrlToPlay);
 
     if (Hls.isSupported()) {
       const hls = new Hls({
@@ -198,7 +237,7 @@ const MyPlayWatch = () => {
       });
 
       hlsRef.current = hls;
-      hls.loadSource(proxiedStreamUrl);
+      hls.loadSource(streamUrlToPlay);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -225,11 +264,19 @@ const MyPlayWatch = () => {
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
           console.error("HLS fatal error:", data);
-          
+
           const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
-          const isManifestError = data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
-                                  data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
-          
+          const isManifestError =
+            data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+            data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+
+          // If the proxy itself cannot reach the upstream host (DNS/SSL/etc), try direct once.
+          if ((isNetworkError || isManifestError) && streamMode === 'proxy') {
+            maybeFallbackToDirect().finally(() => {
+              // no-op
+            });
+          }
+
           if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
             console.log('Network/manifest error detected, auto-refreshing...');
             refreshAndRetry();
@@ -240,7 +287,7 @@ const MyPlayWatch = () => {
         }
       });
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = proxiedStreamUrl;
+      video.src = streamUrlToPlay;
       video.addEventListener("loadedmetadata", () => {
         retryCountRef.current = 0;
         setIsLoading(false);
@@ -249,6 +296,12 @@ const MyPlayWatch = () => {
         setIsPlaying(true);
       });
       video.addEventListener("error", () => {
+        if (streamMode === 'proxy') {
+          maybeFallbackToDirect().finally(() => {
+            // no-op
+          });
+        }
+
         if (retryCountRef.current < MAX_AUTO_RETRIES) {
           console.log('Video error detected, auto-refreshing...');
           refreshAndRetry();
@@ -261,7 +314,7 @@ const MyPlayWatch = () => {
       setError("HLS not supported in this browser");
       setIsLoading(false);
     }
-  }, [channel, getProxyUrl, refreshAndRetry]);
+  }, [channel, getStreamUrl, maybeFallbackToDirect, refreshAndRetry, streamMode]);
 
   useEffect(() => {
     if (channel) {
@@ -300,11 +353,13 @@ const MyPlayWatch = () => {
 
   const handleRetry = async () => {
     retryCountRef.current = 0;
+    triedDirectFallbackRef.current = false;
+    setStreamMode('proxy');
     setIsRefreshing(true);
     setError(null);
-    
+
     const freshChannel = await fetchChannelData();
-    
+
     if (freshChannel) {
       setChannel(freshChannel);
     }
