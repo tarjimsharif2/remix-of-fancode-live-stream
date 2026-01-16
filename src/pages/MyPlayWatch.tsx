@@ -1,21 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { CustomChannel } from "@/types/customChannel";
 import {
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize,
-  Minimize,
   Settings,
   RefreshCw,
   AlertCircle,
   RectangleHorizontal,
   Scan,
   Move,
+  PictureInPicture2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,24 +26,22 @@ interface QualityLevel {
   label: string;
 }
 
+const AUTO_RETRY_INTERVAL = 10000;
+const MAX_AUTO_RETRIES = 3;
+
 const MyPlayWatch = () => {
   const [searchParams] = useSearchParams();
   const channelId = searchParams.get("id");
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef<number>(0);
-  const MAX_AUTO_RETRIES = 2;
-  const lastProxyUrlRef = useRef<string | null>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triedDirectFallbackRef = useRef(false);
 
   const [channel, setChannel] = useState<CustomChannel | null>(null);
   const [channelLoading, setChannelLoading] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
@@ -57,6 +49,8 @@ const MyPlayWatch = () => {
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
+  const [isPiPSupported, setIsPiPSupported] = useState(false);
+  const [isPiPActive, setIsPiPActive] = useState(false);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
@@ -110,6 +104,244 @@ const MyPlayWatch = () => {
     loadChannel();
   }, [fetchChannelData]);
 
+  // Build proxy URL for the stream with custom headers
+  const getProxyUrl = useCallback((url: string) => {
+    if (!channel) return url;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
+    proxyUrl.searchParams.set('url', url);
+
+    if (channel.custom_referer) proxyUrl.searchParams.set('referer', channel.custom_referer);
+    if (channel.custom_origin) proxyUrl.searchParams.set('origin', channel.custom_origin);
+    if (channel.custom_user_agent) proxyUrl.searchParams.set('user_agent', channel.custom_user_agent);
+    if (channel.custom_cookie) proxyUrl.searchParams.set('cookie', channel.custom_cookie);
+
+    if (channel.custom_headers && Object.keys(channel.custom_headers).length > 0) {
+      proxyUrl.searchParams.set('custom_headers', JSON.stringify(channel.custom_headers));
+    }
+
+    return proxyUrl.toString();
+  }, [channel]);
+
+  const getStreamUrl = useCallback((url: string) => {
+    if (streamMode === 'direct') return url;
+    return getProxyUrl(url);
+  }, [getProxyUrl, streamMode]);
+
+  const stopAutoRetry = useCallback(() => {
+    if (retryIntervalRef.current) {
+      clearInterval(retryIntervalRef.current);
+      retryIntervalRef.current = null;
+    }
+  }, []);
+
+  const switchToDirectMode = useCallback(() => {
+    if (triedDirectFallbackRef.current) return false;
+    console.log('Switching to direct stream mode (proxy unreachable)');
+    triedDirectFallbackRef.current = true;
+    setStreamMode('direct');
+    setError(null);
+    setIsLoading(true);
+    return true;
+  }, []);
+
+  const startAutoRetry = useCallback(() => {
+    stopAutoRetry();
+    retryIntervalRef.current = setInterval(() => {
+      if (retryCountRef.current < MAX_AUTO_RETRIES) {
+        retryCountRef.current += 1;
+        console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
+        // Trigger re-init by updating a dummy state or calling initPlayer
+      } else {
+        stopAutoRetry();
+      }
+    }, AUTO_RETRY_INTERVAL);
+  }, [stopAutoRetry]);
+
+  const initPlayer = useCallback(async () => {
+    if (!playerContainerRef.current || !channel?.stream_url) {
+      return;
+    }
+
+    if (playerRef.current) {
+      playerRef.current.destroy();
+      playerRef.current = null;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setQualities([]);
+    setCurrentQuality(-1);
+    stopAutoRetry();
+
+    const streamUrlToPlay = getStreamUrl(channel.stream_url);
+    console.log('Using stream URL:', streamUrlToPlay, '(mode:', streamMode, ')');
+
+    try {
+      const Clappr = await import('@clappr/player');
+      const HlsjsPlayback = await import('@clappr/hlsjs-playback');
+
+      if (playerContainerRef.current) {
+        playerContainerRef.current.innerHTML = '';
+      }
+
+      setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
+
+      const player = new Clappr.default.Player({
+        parent: playerContainerRef.current,
+        source: streamUrlToPlay,
+        plugins: [HlsjsPlayback.default],
+        playback: {
+          hlsjsConfig: {
+            enableWorker: true,
+            lowLatencyMode: true,
+            maxBufferLength: 12,
+            maxMaxBufferLength: 30,
+            maxBufferSize: 30 * 1000 * 1000,
+            maxBufferHole: 0.5,
+            startLevel: -1,
+            abrEwmaDefaultEstimate: 4000000,
+            abrBandWidthFactor: 0.95,
+            abrBandWidthUpFactor: 0.7,
+            fragLoadingTimeOut: 7000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 400,
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 4,
+          }
+        },
+        hlsPlayback: {
+          preload: true,
+        },
+        autoPlay: true,
+        mute: false,
+        disableVideoTagContextMenu: true,
+        disableKeyboardShortcuts: true,
+        chromeless: false,
+        allowUserInteraction: false,
+        clickToPause: false,
+        height: '100%',
+        width: '100%',
+        mediacontrol: {
+          seekbar: '#10b981',
+          buttons: '#ffffff'
+        },
+        events: {
+          onError: (e: any) => {
+            console.error('Clappr error:', e);
+            
+            // Try switching to direct mode if proxy failed
+            if (streamMode === 'proxy' && switchToDirectMode()) {
+              return;
+            }
+            
+            setError('Stream unavailable. Retrying...');
+            setIsLoading(false);
+            startAutoRetry();
+          },
+          onPlay: () => {
+            setIsLoading(false);
+            retryCountRef.current = 0;
+            stopAutoRetry();
+          },
+          onReady: () => {
+            setIsLoading(false);
+            
+            const extractQualities = () => {
+              try {
+                const playback = player.core?.getCurrentPlayback?.();
+
+                const levels = (playback as any)?.levels;
+                if (Array.isArray(levels) && levels.length > 0) {
+                  const qualityList: QualityLevel[] = levels
+                    .map((lvl: any) => ({
+                      id: typeof lvl?.id === 'number' ? lvl.id : lvl?.levelId,
+                      height: lvl?.level?.height || lvl?.height || 0,
+                      label: lvl?.label || (lvl?.level?.height ? `${lvl.level.height}p` : (lvl?.height ? `${lvl.height}p` : 'Auto')),
+                    }))
+                    .filter((q: QualityLevel) => typeof q.id === 'number' && q.height > 0)
+                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
+
+                  if (qualityList.length > 0) {
+                    setQualities(qualityList);
+                    return true;
+                  }
+                }
+
+                const hls = (playback as any)?._hls || (playback as any)?.hls;
+                if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
+                  const qualityList: QualityLevel[] = hls.levels
+                    .map((lvl: any, index: number) => ({
+                      id: index,
+                      height: lvl.height || 0,
+                      label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
+                    }))
+                    .filter((q: QualityLevel) => q.height > 0)
+                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
+
+                  if (qualityList.length > 0) {
+                    setQualities(qualityList);
+                    return true;
+                  }
+                }
+              } catch (err) {
+                console.log('Could not extract qualities:', err);
+              }
+              return false;
+            };
+
+            const tryExtract = (attempts: number) => {
+              if (attempts <= 0) return;
+              if (!extractQualities()) {
+                setTimeout(() => tryExtract(attempts - 1), 800);
+              }
+            };
+            tryExtract(8);
+
+            const videoElement = player.core?.getCurrentPlayback?.()?.el;
+            if (videoElement) {
+              videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
+              videoElement.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
+            }
+          }
+        }
+      });
+
+      playerRef.current = player;
+
+      player.on(Clappr.default.Events.PLAYER_ERROR, () => {
+        // Try switching to direct mode if proxy failed
+        if (streamMode === 'proxy' && switchToDirectMode()) {
+          return;
+        }
+        
+        setError('Stream unavailable. Retrying...');
+        setIsLoading(false);
+        startAutoRetry();
+      });
+
+    } catch (err) {
+      console.error('Failed to initialize player:', err);
+      setError('Failed to load video player. Please try again.');
+      setIsLoading(false);
+      startAutoRetry();
+    }
+  }, [channel, getStreamUrl, stopAutoRetry, startAutoRetry, streamMode, switchToDirectMode]);
+
+  useEffect(() => {
+    if (channel) {
+      initPlayer();
+    }
+
+    return () => {
+      stopAutoRetry();
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [channel, streamMode]);
+
   const lockLandscape = useCallback(async () => {
     try {
       if (screen.orientation && 'lock' in screen.orientation) {
@@ -130,250 +362,10 @@ const MyPlayWatch = () => {
     }
   }, []);
 
-  // Build proxy URL for the stream with custom headers
-  const getProxyUrl = useCallback((url: string) => {
-    if (!channel) return url;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
-    proxyUrl.searchParams.set('url', url);
-
-    // Add custom headers
-    if (channel.custom_referer) proxyUrl.searchParams.set('referer', channel.custom_referer);
-    if (channel.custom_origin) proxyUrl.searchParams.set('origin', channel.custom_origin);
-    if (channel.custom_user_agent) proxyUrl.searchParams.set('user_agent', channel.custom_user_agent);
-    if (channel.custom_cookie) proxyUrl.searchParams.set('cookie', channel.custom_cookie);
-
-    // Add any extra custom headers as JSON
-    if (channel.custom_headers && Object.keys(channel.custom_headers).length > 0) {
-      proxyUrl.searchParams.set('custom_headers', JSON.stringify(channel.custom_headers));
-    }
-
-    return proxyUrl.toString();
-  }, [channel]);
-
-  const getStreamUrl = useCallback((url: string) => {
-    if (streamMode === 'direct') return url;
-    const proxied = getProxyUrl(url);
-    lastProxyUrlRef.current = proxied;
-    return proxied;
-  }, [getProxyUrl, streamMode]);
-
-  // Auto-refresh channel and retry stream on errors
-  const refreshAndRetry = useCallback(async () => {
-    if (retryCountRef.current >= MAX_AUTO_RETRIES) {
-      console.log('Max auto-retries reached, showing error');
-      setError("Stream unavailable. Please try again later.");
-      setIsLoading(false);
-      setIsRefreshing(false);
-      return;
-    }
-
-    retryCountRef.current += 1;
-    console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
-
-    setIsRefreshing(true);
-    setError(null);
-
-    const freshChannel = await fetchChannelData();
-
-    if (freshChannel) {
-      console.log('Got fresh channel data, retrying stream...');
-      setChannel(freshChannel);
-      setIsRefreshing(false);
-    } else {
-      setError("Failed to refresh channel data");
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [fetchChannelData]);
-
-  // Codes that indicate proxy couldn't reach the host; direct might work from client.
-  const PROXY_UNREACHABLE_CODES = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
-
-  // If proxy cannot reach the upstream (DNS/SSL/etc), automatically try direct playback once.
-  const switchToDirectMode = useCallback(() => {
-    if (triedDirectFallbackRef.current) return false;
-    console.log('Switching to direct stream mode (proxy unreachable)');
-    triedDirectFallbackRef.current = true;
-    setStreamMode('direct');
-    setError(null);
-    setIsLoading(true);
-    return true;
-  }, []);
-
-  // Pre-check proxy URL before initializing player
-  const checkProxyAndPlay = useCallback(async (url: string): Promise<{ canUseProxy: boolean; errorCode?: string }> => {
-    if (streamMode === 'direct') return { canUseProxy: false };
-    
-    const proxyUrl = getProxyUrl(url);
-    lastProxyUrlRef.current = proxyUrl;
-    
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const res = await fetch(proxyUrl, { 
-        method: 'GET',
-        signal: controller.signal 
-      });
-      clearTimeout(timeoutId);
-      
-      const ct = res.headers.get('content-type') || '';
-      
-      // If response is JSON, it's an error from the proxy
-      if (ct.includes('application/json')) {
-        const body = await res.json();
-        const code = body?.code || '';
-        console.log('Proxy returned error:', code, body?.error);
-        
-        if (PROXY_UNREACHABLE_CODES.has(code)) {
-          return { canUseProxy: false, errorCode: code };
-        }
-      }
-      
-      return { canUseProxy: true };
-    } catch (e) {
-      console.log('Proxy check failed:', e);
-      return { canUseProxy: false, errorCode: 'FETCH_ERROR' };
-    }
-  }, [getProxyUrl, streamMode]);
-
-  const initPlayer = useCallback(async () => {
-    if (!channel?.stream_url || !videoRef.current) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    // If using proxy mode, pre-check if proxy can reach the stream
-    if (streamMode === 'proxy') {
-      const { canUseProxy, errorCode } = await checkProxyAndPlay(channel.stream_url);
-      if (!canUseProxy && errorCode) {
-        console.log(`Proxy failed with ${errorCode}, switching to direct mode`);
-        if (switchToDirectMode()) {
-          return; // Will re-init with direct mode via useEffect
-        }
-      }
-    }
-
-    const video = videoRef.current;
-    if (!video) return;
-    
-    const streamUrlToPlay = getStreamUrl(channel.stream_url);
-    console.log('Using stream URL:', streamUrlToPlay, '(mode:', streamMode, ')');
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 90,
-      });
-
-      hlsRef.current = hls;
-      hls.loadSource(streamUrlToPlay);
-      hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        retryCountRef.current = 0;
-        setIsLoading(false);
-        video.muted = false;
-        video.play().catch(console.error);
-        setIsPlaying(true);
-
-        if (hls.levels && hls.levels.length > 0) {
-          const qualityList: QualityLevel[] = hls.levels
-            .map((lvl, index) => ({
-              id: index,
-              height: lvl.height || 0,
-              label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
-            }))
-            .filter((q) => q.height > 0)
-            .sort((a, b) => b.height - a.height);
-
-          setQualities(qualityList);
-        }
-      });
-
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-          console.error("HLS fatal error:", data);
-
-          const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
-          const isManifestError =
-            data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
-            data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
-
-          // If proxy mode and network error, try switching to direct
-          if ((isNetworkError || isManifestError) && streamMode === 'proxy') {
-            if (switchToDirectMode()) {
-              return; // Will re-init via useEffect
-            }
-          }
-
-          if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
-            console.log('Network/manifest error detected, auto-refreshing...');
-            refreshAndRetry();
-          } else {
-            setError("Stream error. Please try again.");
-            setIsLoading(false);
-          }
-        }
-      });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = streamUrlToPlay;
-      video.addEventListener("loadedmetadata", () => {
-        retryCountRef.current = 0;
-        setIsLoading(false);
-        video.muted = false;
-        video.play().catch(console.error);
-        setIsPlaying(true);
-      });
-      video.addEventListener("error", () => {
-        // If proxy mode and error, try switching to direct
-        if (streamMode === 'proxy') {
-          if (switchToDirectMode()) {
-            return;
-          }
-        }
-
-        if (retryCountRef.current < MAX_AUTO_RETRIES) {
-          console.log('Video error detected, auto-refreshing...');
-          refreshAndRetry();
-        } else {
-          setError("Stream error. Please try again.");
-          setIsLoading(false);
-        }
-      });
-    } else {
-      setError("HLS not supported in this browser");
-      setIsLoading(false);
-    }
-  }, [channel, getStreamUrl, checkProxyAndPlay, switchToDirectMode, refreshAndRetry, streamMode]);
-
-  useEffect(() => {
-    if (channel) {
-      initPlayer();
-    }
-
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-      unlockOrientation();
-    };
-  }, [channel, initPlayer, unlockOrientation]);
-
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isNowFullscreen = !!document.fullscreenElement;
-      setIsFullscreen(isNowFullscreen);
-      
-      if (isNowFullscreen) {
+      const isFullscreen = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      if (isFullscreen) {
         lockLandscape();
       } else {
         unlockOrientation();
@@ -386,6 +378,7 @@ const MyPlayWatch = () => {
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      unlockOrientation();
     };
   }, [lockLandscape, unlockOrientation]);
 
@@ -404,52 +397,47 @@ const MyPlayWatch = () => {
     setIsRefreshing(false);
   };
 
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play();
-      setIsPlaying(true);
-    } else {
-      videoRef.current.pause();
-      setIsPlaying(false);
-    }
-  };
-
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = !videoRef.current.muted;
-    setIsMuted(videoRef.current.muted);
-  };
-
-  const toggleFullscreen = async () => {
-    if (!containerRef.current) return;
-
+  const handleQualityChange = (levelId: number) => {
     try {
-      if (!document.fullscreenElement) {
-        await containerRef.current.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
+      const playback = playerRef.current?.core?.getCurrentPlayback?.();
+
+      if ((playback as any)?.setLevel) {
+        (playback as any).setLevel(levelId);
+        setCurrentQuality(levelId);
+        return;
+      }
+
+      const hls = (playback as any)?._hls || (playback as any)?.hls;
+      if (hls) {
+        hls.currentLevel = levelId;
+        if (typeof hls.nextLevel === 'number') hls.nextLevel = levelId;
+        if (typeof hls.loadLevel === 'number') hls.loadLevel = levelId;
+        setCurrentQuality(levelId);
       }
     } catch (err) {
-      console.error("Fullscreen error:", err);
-    }
-  };
-
-  const handleQualityChange = (levelId: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = levelId;
-      hlsRef.current.nextLevel = levelId;
-      hlsRef.current.loadLevel = levelId;
-      setCurrentQuality(levelId);
+      console.error('Quality change error:', err);
     }
   };
 
   const handleAutoQuality = () => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = -1;
-      hlsRef.current.nextLevel = -1;
-      hlsRef.current.loadLevel = -1;
-      setCurrentQuality(-1);
+    try {
+      const playback = playerRef.current?.core?.getCurrentPlayback?.();
+
+      if ((playback as any)?.setLevel) {
+        (playback as any).setLevel(-1);
+        setCurrentQuality(-1);
+        return;
+      }
+
+      const hls = (playback as any)?._hls || (playback as any)?.hls;
+      if (hls) {
+        hls.currentLevel = -1;
+        if (typeof hls.nextLevel === 'number') hls.nextLevel = -1;
+        if (typeof hls.loadLevel === 'number') hls.loadLevel = -1;
+        setCurrentQuality(-1);
+      }
+    } catch (err) {
+      console.error('Auto quality error:', err);
     }
   };
 
@@ -459,25 +447,41 @@ const MyPlayWatch = () => {
     return quality?.label || "Auto";
   };
 
+  const togglePiP = async () => {
+    try {
+      const videoElement = playerRef.current?.core?.getCurrentPlayback?.()?.el;
+      if (!videoElement) return;
+
+      if (isPiPActive) {
+        await (document as any).exitPictureInPicture();
+      } else {
+        await videoElement.requestPictureInPicture();
+      }
+    } catch (err) {
+      console.error('PiP error:', err);
+    }
+  };
+
   const handleDisplayModeChange = (mode: 'fit' | 'fill' | 'stretch') => {
     setDisplayMode(mode);
     localStorage.setItem('videoDisplayMode', mode);
-  };
-
-  const getDisplayModeClass = () => {
-    switch (displayMode) {
-      case 'fit': return 'object-contain';
-      case 'fill': return 'object-cover';
-      case 'stretch': return 'object-fill';
-      default: return 'object-fill';
+    
+    if (playerContainerRef.current) {
+      const videoEl = playerContainerRef.current.querySelector('video');
+      if (videoEl) {
+        videoEl.style.objectFit = mode === 'fit' ? 'contain' : mode === 'fill' ? 'cover' : 'fill';
+      }
     }
   };
 
   const getDisplayModeIcon = () => {
     switch (displayMode) {
-      case 'fit': return <RectangleHorizontal className="w-4 h-4" />;
-      case 'fill': return <Scan className="w-4 h-4" />;
-      case 'stretch': return <Move className="w-4 h-4" />;
+      case 'fit':
+        return <RectangleHorizontal className="w-4 h-4" />;
+      case 'fill':
+        return <Scan className="w-4 h-4" />;
+      case 'stretch':
+        return <Move className="w-4 h-4" />;
     }
   };
 
@@ -487,9 +491,7 @@ const MyPlayWatch = () => {
       clearTimeout(controlsTimeoutRef.current);
     }
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
-        setShowControls(false);
-      }
+      setShowControls(false);
     }, 3000);
   };
 
@@ -521,14 +523,13 @@ const MyPlayWatch = () => {
 
   return (
     <div
-      ref={containerRef}
       className="fixed inset-0 bg-black"
       onMouseMove={showControlsTemporarily}
       onTouchStart={showControlsTemporarily}
     >
       {/* Loading state */}
       {(isLoading || isRefreshing) && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             <p className="text-white">
@@ -539,7 +540,7 @@ const MyPlayWatch = () => {
                 Using direct mode (proxy unavailable)
               </p>
             )}
-            {isRefreshing && retryCountRef.current > 0 && (
+            {retryCountRef.current > 0 && (
               <p className="text-gray-400 text-sm">
                 Auto-retry {retryCountRef.current}/{MAX_AUTO_RETRIES}
               </p>
@@ -549,7 +550,7 @@ const MyPlayWatch = () => {
       )}
 
       {/* Error state */}
-      {error && !channelLoading && (
+      {error && !channelLoading && !isLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="text-center text-white max-w-md px-4">
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
@@ -560,7 +561,7 @@ const MyPlayWatch = () => {
               </p>
             )}
             <p className="text-gray-400 text-sm mb-4">
-              The stream server may be temporarily unavailable or unreachable from your location.
+              The stream server may be temporarily unavailable.
             </p>
             <div className="flex gap-4 justify-center">
               <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
@@ -572,135 +573,136 @@ const MyPlayWatch = () => {
         </div>
       )}
 
-      {/* Video player */}
-      <video
-        ref={videoRef}
-        className={cn("w-full h-full", getDisplayModeClass())}
-        playsInline
-        muted={isMuted}
-        autoPlay
+      {/* Clappr player container */}
+      <div 
+        ref={playerContainerRef} 
+        className="w-full h-full"
+        style={{ 
+          position: 'absolute',
+          inset: 0,
+        }}
       />
 
-      {/* Controls overlay */}
+      {/* Custom controls overlay */}
       <div
         className={cn(
-          "absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 transition-opacity duration-300",
-          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+          "absolute inset-0 pointer-events-none transition-opacity duration-300 z-20",
+          showControls ? "opacity-100" : "opacity-0"
         )}
       >
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 p-4 flex items-center gap-4">
-          <div className="flex-1">
-            <h1 className="text-white font-semibold text-lg truncate">
-              {channel.name}
-            </h1>
+        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent pointer-events-auto">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <h1 className="text-white font-semibold text-lg truncate">
+                {channel.name}
+              </h1>
+              {streamMode === 'direct' && (
+                <p className="text-yellow-400 text-xs">Direct Mode</p>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Center play button */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Button
-            variant="ghost"
-            size="lg"
-            className="w-16 h-16 rounded-full bg-white/20 hover:bg-white/30"
-            onClick={togglePlay}
-          >
-            {isPlaying ? (
-              <Pause className="w-8 h-8 text-white" />
-            ) : (
-              <Play className="w-8 h-8 text-white ml-1" />
-            )}
-          </Button>
-        </div>
-
         {/* Bottom controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={togglePlay}>
-            {isPlaying ? (
-              <Pause className="w-5 h-5 text-white" />
-            ) : (
-              <Play className="w-5 h-5 text-white" />
-            )}
-          </Button>
-
-          <Button variant="ghost" size="icon" onClick={toggleMute}>
-            {isMuted ? (
-              <VolumeX className="w-5 h-5 text-white" />
-            ) : (
-              <Volume2 className="w-5 h-5 text-white" />
-            )}
-          </Button>
-
-          <div className="flex-1" />
-
-          {/* Display Mode */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                {getDisplayModeIcon()}
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent pointer-events-auto">
+          <div className="flex items-center justify-end gap-2">
+            {/* PiP Button */}
+            {isPiPSupported && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={togglePiP}
+                className="text-white hover:bg-white/20"
+              >
+                <PictureInPicture2 className={cn("w-5 h-5", isPiPActive && "text-primary")} />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-black/90 border-white/20">
-              <DropdownMenuItem
-                onClick={() => handleDisplayModeChange('fit')}
-                className={cn("text-white", displayMode === 'fit' && "bg-white/20")}
-              >
-                <RectangleHorizontal className="w-4 h-4 mr-2" />
-                Fit
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleDisplayModeChange('fill')}
-                className={cn("text-white", displayMode === 'fill' && "bg-white/20")}
-              >
-                <Scan className="w-4 h-4 mr-2" />
-                Fill
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleDisplayModeChange('stretch')}
-                className={cn("text-white", displayMode === 'stretch' && "bg-white/20")}
-              >
-                <Move className="w-4 h-4 mr-2" />
-                Stretch
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            )}
 
-          {/* Quality selector */}
-          {qualities.length > 0 && (
+            {/* Display Mode Selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-white gap-2">
-                  <Settings className="w-4 h-4" />
-                  {getCurrentQualityLabel()}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-white/20"
+                >
+                  {getDisplayModeIcon()}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-black/90 border-white/20">
+              <DropdownMenuContent align="end" className="bg-black/90 border-gray-700">
                 <DropdownMenuItem
-                  onClick={handleAutoQuality}
-                  className={cn("text-white", currentQuality === -1 && "bg-white/20")}
+                  onClick={() => handleDisplayModeChange('fit')}
+                  className={cn(
+                    "text-white hover:bg-white/20",
+                    displayMode === 'fit' && "bg-primary/20"
+                  )}
                 >
-                  Auto
+                  <RectangleHorizontal className="w-4 h-4 mr-2" />
+                  Fit
                 </DropdownMenuItem>
-                {qualities.map((q) => (
-                  <DropdownMenuItem
-                    key={q.id}
-                    onClick={() => handleQualityChange(q.id)}
-                    className={cn("text-white", currentQuality === q.id && "bg-white/20")}
-                  >
-                    {q.label}
-                  </DropdownMenuItem>
-                ))}
+                <DropdownMenuItem
+                  onClick={() => handleDisplayModeChange('fill')}
+                  className={cn(
+                    "text-white hover:bg-white/20",
+                    displayMode === 'fill' && "bg-primary/20"
+                  )}
+                >
+                  <Scan className="w-4 h-4 mr-2" />
+                  Fill
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleDisplayModeChange('stretch')}
+                  className={cn(
+                    "text-white hover:bg-white/20",
+                    displayMode === 'stretch' && "bg-primary/20"
+                  )}
+                >
+                  <Move className="w-4 h-4 mr-2" />
+                  Stretch
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
 
-          <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
-            {isFullscreen ? (
-              <Minimize className="w-5 h-5 text-white" />
-            ) : (
-              <Maximize className="w-5 h-5 text-white" />
+            {/* Quality Selector */}
+            {qualities.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-white hover:bg-white/20 gap-1"
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span className="text-xs">{getCurrentQualityLabel()}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-black/90 border-gray-700">
+                  <DropdownMenuItem
+                    onClick={handleAutoQuality}
+                    className={cn(
+                      "text-white hover:bg-white/20",
+                      currentQuality === -1 && "bg-primary/20"
+                    )}
+                  >
+                    Auto
+                  </DropdownMenuItem>
+                  {qualities.map((quality) => (
+                    <DropdownMenuItem
+                      key={quality.id}
+                      onClick={() => handleQualityChange(quality.id)}
+                      className={cn(
+                        "text-white hover:bg-white/20",
+                        currentQuality === quality.id && "bg-primary/20"
+                      )}
+                    >
+                      {quality.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-          </Button>
+          </div>
         </div>
       </div>
     </div>
