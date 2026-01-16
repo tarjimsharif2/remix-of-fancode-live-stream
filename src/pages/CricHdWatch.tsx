@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
+import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { CricHdChannel, CricHdResponse } from "@/types/crichd";
 import {
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
   Settings,
   RefreshCw,
   AlertCircle,
   RectangleHorizontal,
   Scan,
   Move,
-  PictureInPicture2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,34 +32,33 @@ interface QualityLevel {
   label: string;
 }
 
-const AUTO_RETRY_INTERVAL = 10000;
-const MAX_AUTO_RETRIES = 3;
-
 const CricHdWatch = () => {
   const [searchParams] = useSearchParams();
+
   const channelId = searchParams.get("id");
 
-  const playerContainerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
-  const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef<number>(0);
+  const MAX_AUTO_RETRIES = 2;
 
   const [channel, setChannel] = useState<CricHdChannel | null>(null);
   const [channelLoading, setChannelLoading] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isPiPSupported, setIsPiPSupported] = useState(false);
-  const [isPiPActive, setIsPiPActive] = useState(false);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
   });
-
-  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch channel data by ID
   const fetchChannelData = useCallback(async (): Promise<CricHdChannel | null> => {
@@ -102,210 +107,6 @@ const CricHdWatch = () => {
     loadChannel();
   }, [fetchChannelData]);
 
-  // Build proxy URL for the stream
-  const getProxyUrl = useCallback((url: string) => {
-    if (!channel) return url;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
-    proxyUrl.searchParams.set('url', url);
-    if (channel.referer) proxyUrl.searchParams.set('referer', channel.referer);
-    if (channel.origin) proxyUrl.searchParams.set('origin', channel.origin);
-    return proxyUrl.toString();
-  }, [channel]);
-
-  const stopAutoRetry = useCallback(() => {
-    if (retryIntervalRef.current) {
-      clearInterval(retryIntervalRef.current);
-      retryIntervalRef.current = null;
-    }
-  }, []);
-
-  const startAutoRetry = useCallback(() => {
-    stopAutoRetry();
-    retryIntervalRef.current = setInterval(() => {
-      if (retryCountRef.current < MAX_AUTO_RETRIES) {
-        retryCountRef.current += 1;
-        console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
-        initPlayer();
-      } else {
-        stopAutoRetry();
-      }
-    }, AUTO_RETRY_INTERVAL);
-  }, [stopAutoRetry]);
-
-  const initPlayer = useCallback(async () => {
-    if (!playerContainerRef.current || !channel?.link) {
-      return;
-    }
-
-    if (playerRef.current) {
-      playerRef.current.destroy();
-      playerRef.current = null;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    setQualities([]);
-    setCurrentQuality(-1);
-    stopAutoRetry();
-
-    const proxiedStreamUrl = getProxyUrl(channel.link);
-    console.log('Using proxied stream URL:', proxiedStreamUrl);
-
-    try {
-      const Clappr = await import('@clappr/player');
-      const HlsjsPlayback = await import('@clappr/hlsjs-playback');
-
-      if (playerContainerRef.current) {
-        playerContainerRef.current.innerHTML = '';
-      }
-
-      setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
-
-      const player = new Clappr.default.Player({
-        parent: playerContainerRef.current,
-        source: proxiedStreamUrl,
-        plugins: [HlsjsPlayback.default],
-        playback: {
-          hlsjsConfig: {
-            enableWorker: true,
-            lowLatencyMode: true,
-            maxBufferLength: 12,
-            maxMaxBufferLength: 30,
-            maxBufferSize: 30 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            startLevel: -1,
-            abrEwmaDefaultEstimate: 4000000,
-            abrBandWidthFactor: 0.95,
-            abrBandWidthUpFactor: 0.7,
-            fragLoadingTimeOut: 7000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 400,
-            liveSyncDurationCount: 2,
-            liveMaxLatencyDurationCount: 4,
-          }
-        },
-        hlsPlayback: {
-          preload: true,
-        },
-        autoPlay: true,
-        mute: false,
-        disableVideoTagContextMenu: true,
-        disableKeyboardShortcuts: true,
-        chromeless: false,
-        allowUserInteraction: false,
-        clickToPause: false,
-        height: '100%',
-        width: '100%',
-        mediacontrol: {
-          seekbar: '#10b981',
-          buttons: '#ffffff'
-        },
-        events: {
-          onError: (e: any) => {
-            console.error('Clappr error:', e);
-            setError('Stream unavailable. Retrying...');
-            setIsLoading(false);
-            startAutoRetry();
-          },
-          onPlay: () => {
-            setIsLoading(false);
-            retryCountRef.current = 0;
-            stopAutoRetry();
-          },
-          onReady: () => {
-            setIsLoading(false);
-            
-            const extractQualities = () => {
-              try {
-                const playback = player.core?.getCurrentPlayback?.();
-
-                const levels = (playback as any)?.levels;
-                if (Array.isArray(levels) && levels.length > 0) {
-                  const qualityList: QualityLevel[] = levels
-                    .map((lvl: any) => ({
-                      id: typeof lvl?.id === 'number' ? lvl.id : lvl?.levelId,
-                      height: lvl?.level?.height || lvl?.height || 0,
-                      label: lvl?.label || (lvl?.level?.height ? `${lvl.level.height}p` : (lvl?.height ? `${lvl.height}p` : 'Auto')),
-                    }))
-                    .filter((q: QualityLevel) => typeof q.id === 'number' && q.height > 0)
-                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
-
-                  if (qualityList.length > 0) {
-                    setQualities(qualityList);
-                    return true;
-                  }
-                }
-
-                const hls = (playback as any)?._hls || (playback as any)?.hls;
-                if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
-                  const qualityList: QualityLevel[] = hls.levels
-                    .map((lvl: any, index: number) => ({
-                      id: index,
-                      height: lvl.height || 0,
-                      label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
-                    }))
-                    .filter((q: QualityLevel) => q.height > 0)
-                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
-
-                  if (qualityList.length > 0) {
-                    setQualities(qualityList);
-                    return true;
-                  }
-                }
-              } catch (err) {
-                console.log('Could not extract qualities:', err);
-              }
-              return false;
-            };
-
-            const tryExtract = (attempts: number) => {
-              if (attempts <= 0) return;
-              if (!extractQualities()) {
-                setTimeout(() => tryExtract(attempts - 1), 800);
-              }
-            };
-            tryExtract(8);
-
-            const videoElement = player.core?.getCurrentPlayback?.()?.el;
-            if (videoElement) {
-              videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
-              videoElement.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
-            }
-          }
-        }
-      });
-
-      playerRef.current = player;
-
-      player.on(Clappr.default.Events.PLAYER_ERROR, () => {
-        setError('Stream unavailable. Retrying...');
-        setIsLoading(false);
-        startAutoRetry();
-      });
-
-    } catch (err) {
-      console.error('Failed to initialize player:', err);
-      setError('Failed to load video player. Please try again.');
-      setIsLoading(false);
-      startAutoRetry();
-    }
-  }, [channel, getProxyUrl, stopAutoRetry, startAutoRetry]);
-
-  useEffect(() => {
-    if (channel) {
-      initPlayer();
-    }
-
-    return () => {
-      stopAutoRetry();
-      if (playerRef.current) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
-    };
-  }, [channel]);
-
   const lockLandscape = useCallback(async () => {
     try {
       if (screen.orientation && 'lock' in screen.orientation) {
@@ -326,10 +127,164 @@ const CricHdWatch = () => {
     }
   }, []);
 
+  // Build proxy URL for the stream
+  const getProxyUrl = useCallback((url: string) => {
+    if (!channel) return url;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
+    proxyUrl.searchParams.set('url', url);
+    if (channel.referer) proxyUrl.searchParams.set('referer', channel.referer);
+    if (channel.origin) proxyUrl.searchParams.set('origin', channel.origin);
+    return proxyUrl.toString();
+  }, [channel]);
+
+  // Auto-refresh channel and retry stream on 403 errors
+  const refreshAndRetry = useCallback(async () => {
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) {
+      console.log('Max auto-retries reached, showing error');
+      setError("Stream unavailable. The channel may be offline or tokens expired.");
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
+
+    retryCountRef.current += 1;
+    console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
+    
+    setIsRefreshing(true);
+    setError(null);
+    
+    // Fetch fresh channel data
+    const freshChannel = await fetchChannelData();
+    
+    if (freshChannel) {
+      console.log('Got fresh channel data, retrying stream...');
+      setChannel(freshChannel);
+      setIsRefreshing(false);
+      // The useEffect watching channel will trigger initPlayer
+    } else {
+      setError("Failed to refresh channel data");
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [fetchChannelData]);
+
+  const initPlayer = useCallback(() => {
+    if (!channel?.link || !videoRef.current) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    // Cleanup existing HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const video = videoRef.current;
+
+    // Use proxy URL instead of direct stream URL
+    const proxiedStreamUrl = getProxyUrl(channel.link);
+    console.log('Using proxied stream URL:', proxiedStreamUrl);
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 90,
+      });
+
+      hlsRef.current = hls;
+
+      hls.loadSource(proxiedStreamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // Reset retry count on successful load
+        retryCountRef.current = 0;
+        setIsLoading(false);
+        video.muted = false; // Start unmuted
+        video.play().catch(console.error);
+        setIsPlaying(true);
+
+        // Extract quality levels
+        if (hls.levels && hls.levels.length > 0) {
+          const qualityList: QualityLevel[] = hls.levels
+            .map((lvl, index) => ({
+              id: index,
+              height: lvl.height || 0,
+              label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
+            }))
+            .filter((q) => q.height > 0)
+            .sort((a, b) => b.height - a.height);
+
+          setQualities(qualityList);
+        }
+      });
+
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          console.error("HLS fatal error:", data);
+          
+          // Check if it's a 403/network error - auto-retry with fresh tokens
+          const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+          const isManifestError = data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
+                                  data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+          
+          if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
+            console.log('Network/manifest error detected, auto-refreshing channel...');
+            refreshAndRetry();
+          } else {
+            setError("Stream error. Please try again.");
+            setIsLoading(false);
+          }
+        }
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native HLS support (Safari) - use proxy URL
+      video.src = proxiedStreamUrl;
+      video.addEventListener("loadedmetadata", () => {
+        retryCountRef.current = 0;
+        setIsLoading(false);
+        video.muted = false; // Start unmuted
+        video.play().catch(console.error);
+        setIsPlaying(true);
+      });
+      video.addEventListener("error", () => {
+        if (retryCountRef.current < MAX_AUTO_RETRIES) {
+          console.log('Video error detected, auto-refreshing channel...');
+          refreshAndRetry();
+        } else {
+          setError("Stream error. Please try again.");
+          setIsLoading(false);
+        }
+      });
+    } else {
+      setError("HLS not supported in this browser");
+      setIsLoading(false);
+    }
+  }, [channel, getProxyUrl, refreshAndRetry]);
+
+  useEffect(() => {
+    if (channel) {
+      initPlayer();
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      unlockOrientation();
+    };
+  }, [channel, initPlayer, unlockOrientation]);
+
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFullscreen = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
-      if (isFullscreen) {
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
+      
+      if (isNowFullscreen) {
         lockLandscape();
       } else {
         unlockOrientation();
@@ -342,15 +297,16 @@ const CricHdWatch = () => {
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
-      unlockOrientation();
     };
   }, [lockLandscape, unlockOrientation]);
 
   const handleRetry = async () => {
+    // Reset retry count for manual retry
     retryCountRef.current = 0;
     setIsRefreshing(true);
     setError(null);
     
+    // Fetch fresh channel data
     const freshChannel = await fetchChannelData();
     
     if (freshChannel) {
@@ -359,47 +315,52 @@ const CricHdWatch = () => {
     setIsRefreshing(false);
   };
 
-  const handleQualityChange = (levelId: number) => {
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !videoRef.current.muted;
+    setIsMuted(videoRef.current.muted);
+  };
+
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
+
     try {
-      const playback = playerRef.current?.core?.getCurrentPlayback?.();
-
-      if ((playback as any)?.setLevel) {
-        (playback as any).setLevel(levelId);
-        setCurrentQuality(levelId);
-        return;
-      }
-
-      const hls = (playback as any)?._hls || (playback as any)?.hls;
-      if (hls) {
-        hls.currentLevel = levelId;
-        if (typeof hls.nextLevel === 'number') hls.nextLevel = levelId;
-        if (typeof hls.loadLevel === 'number') hls.loadLevel = levelId;
-        setCurrentQuality(levelId);
+      if (!document.fullscreenElement) {
+        await containerRef.current.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
       }
     } catch (err) {
-      console.error('Quality change error:', err);
+      console.error("Fullscreen error:", err);
+    }
+  };
+
+  const handleQualityChange = (levelId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelId;
+      hlsRef.current.nextLevel = levelId;
+      hlsRef.current.loadLevel = levelId;
+      setCurrentQuality(levelId);
     }
   };
 
   const handleAutoQuality = () => {
-    try {
-      const playback = playerRef.current?.core?.getCurrentPlayback?.();
-
-      if ((playback as any)?.setLevel) {
-        (playback as any).setLevel(-1);
-        setCurrentQuality(-1);
-        return;
-      }
-
-      const hls = (playback as any)?._hls || (playback as any)?.hls;
-      if (hls) {
-        hls.currentLevel = -1;
-        if (typeof hls.nextLevel === 'number') hls.nextLevel = -1;
-        if (typeof hls.loadLevel === 'number') hls.loadLevel = -1;
-        setCurrentQuality(-1);
-      }
-    } catch (err) {
-      console.error('Auto quality error:', err);
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = -1;
+      hlsRef.current.nextLevel = -1;
+      hlsRef.current.loadLevel = -1;
+      setCurrentQuality(-1);
     }
   };
 
@@ -409,31 +370,21 @@ const CricHdWatch = () => {
     return quality?.label || "Auto";
   };
 
-  const togglePiP = async () => {
-    try {
-      const videoElement = playerRef.current?.core?.getCurrentPlayback?.()?.el;
-      if (!videoElement) return;
-
-      if (isPiPActive) {
-        await (document as any).exitPictureInPicture();
-      } else {
-        await videoElement.requestPictureInPicture();
-      }
-    } catch (err) {
-      console.error('PiP error:', err);
-    }
-  };
-
   const handleDisplayModeChange = (mode: 'fit' | 'fill' | 'stretch') => {
     setDisplayMode(mode);
     localStorage.setItem('videoDisplayMode', mode);
-    
-    // Apply to Clappr container
-    if (playerContainerRef.current) {
-      const videoEl = playerContainerRef.current.querySelector('video');
-      if (videoEl) {
-        videoEl.style.objectFit = mode === 'fit' ? 'contain' : mode === 'fill' ? 'cover' : 'fill';
-      }
+  };
+
+  const getDisplayModeClass = () => {
+    switch (displayMode) {
+      case 'fit':
+        return 'object-contain';
+      case 'fill':
+        return 'object-cover';
+      case 'stretch':
+        return 'object-fill';
+      default:
+        return 'object-fill';
     }
   };
 
@@ -454,9 +405,12 @@ const CricHdWatch = () => {
       clearTimeout(controlsTimeoutRef.current);
     }
     controlsTimeoutRef.current = setTimeout(() => {
-      setShowControls(false);
+      if (isPlaying) {
+        setShowControls(false);
+      }
     }, 3000);
   };
+
 
   // Loading channel data
   if (channelLoading) {
@@ -487,19 +441,20 @@ const CricHdWatch = () => {
 
   return (
     <div
+      ref={containerRef}
       className="fixed inset-0 bg-black"
       onMouseMove={showControlsTemporarily}
       onTouchStart={showControlsTemporarily}
     >
       {/* Loading state */}
       {(isLoading || isRefreshing) && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             <p className="text-white">
               {isRefreshing ? "Refreshing stream..." : "Loading stream..."}
             </p>
-            {retryCountRef.current > 0 && (
+            {isRefreshing && retryCountRef.current > 0 && (
               <p className="text-gray-400 text-sm">
                 Auto-retry {retryCountRef.current}/{MAX_AUTO_RETRIES}
               </p>
@@ -509,7 +464,7 @@ const CricHdWatch = () => {
       )}
 
       {/* Error state */}
-      {error && !channelLoading && !isLoading && (
+      {error && !channelLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="text-center text-white">
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
@@ -524,96 +479,68 @@ const CricHdWatch = () => {
         </div>
       )}
 
-      {/* Clappr player container */}
-      <div 
-        ref={playerContainerRef} 
-        className="w-full h-full"
-        style={{ 
-          position: 'absolute',
-          inset: 0,
-        }}
+      {/* Video player */}
+      <video
+        ref={videoRef}
+        className={cn("w-full h-full", getDisplayModeClass())}
+        playsInline
+        muted={isMuted}
+        autoPlay
       />
 
-      {/* Custom controls overlay */}
+      {/* Controls overlay */}
       <div
         className={cn(
-          "absolute inset-0 pointer-events-none transition-opacity duration-300 z-20",
-          showControls ? "opacity-100" : "opacity-0"
+          "absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 transition-opacity duration-300",
+          showControls ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
       >
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent pointer-events-auto">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <h1 className="text-white font-semibold text-lg truncate">
-                {channel.name}
-              </h1>
-            </div>
+        <div className="absolute top-0 left-0 right-0 p-4 flex items-center gap-4">
+          <div className="flex-1">
+            <h1 className="text-white font-semibold text-lg line-clamp-1">
+              {channel.name}
+            </h1>
           </div>
+          <span className="px-2 py-1 text-xs font-bold bg-red-600 text-white rounded-full animate-pulse">
+            LIVE
+          </span>
         </div>
 
         {/* Bottom controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent pointer-events-auto">
-          <div className="flex items-center justify-end gap-2">
-            {/* PiP Button */}
-            {isPiPSupported && (
+        <div className="absolute bottom-0 left-0 right-0 p-4">
+          <div className="flex items-center justify-between gap-4">
+            {/* Left controls */}
+            <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={togglePiP}
                 className="text-white hover:bg-white/20"
+                onClick={togglePlay}
               >
-                <PictureInPicture2 className={cn("w-5 h-5", isPiPActive && "text-primary")} />
+                {isPlaying ? (
+                  <Pause className="w-6 h-6" />
+                ) : (
+                  <Play className="w-6 h-6" />
+                )}
               </Button>
-            )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-white/20"
+                onClick={toggleMute}
+              >
+                {isMuted ? (
+                  <VolumeX className="w-6 h-6" />
+                ) : (
+                  <Volume2 className="w-6 h-6" />
+                )}
+              </Button>
+            </div>
 
-            {/* Display Mode Selector */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:bg-white/20"
-                >
-                  {getDisplayModeIcon()}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-black/90 border-gray-700">
-                <DropdownMenuItem
-                  onClick={() => handleDisplayModeChange('fit')}
-                  className={cn(
-                    "text-white hover:bg-white/20",
-                    displayMode === 'fit' && "bg-primary/20"
-                  )}
-                >
-                  <RectangleHorizontal className="w-4 h-4 mr-2" />
-                  Fit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => handleDisplayModeChange('fill')}
-                  className={cn(
-                    "text-white hover:bg-white/20",
-                    displayMode === 'fill' && "bg-primary/20"
-                  )}
-                >
-                  <Scan className="w-4 h-4 mr-2" />
-                  Fill
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => handleDisplayModeChange('stretch')}
-                  className={cn(
-                    "text-white hover:bg-white/20",
-                    displayMode === 'stretch' && "bg-primary/20"
-                  )}
-                >
-                  <Move className="w-4 h-4 mr-2" />
-                  Stretch
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Quality Selector */}
-            {qualities.length > 0 && (
+            {/* Right controls */}
+            <div className="flex items-center gap-2">
+              {/* Display Mode Toggle */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -621,35 +548,100 @@ const CricHdWatch = () => {
                     size="sm"
                     className="text-white hover:bg-white/20 gap-1"
                   >
-                    <Settings className="w-4 h-4" />
-                    <span className="text-xs">{getCurrentQualityLabel()}</span>
+                    {getDisplayModeIcon()}
+                    <span className="hidden sm:inline capitalize">{displayMode}</span>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-black/90 border-gray-700">
+                <DropdownMenuContent
+                  align="end"
+                  className="bg-black border-white/20 z-50"
+                >
                   <DropdownMenuItem
-                    onClick={handleAutoQuality}
+                    onClick={() => handleDisplayModeChange('fit')}
                     className={cn(
-                      "text-white hover:bg-white/20",
-                      currentQuality === -1 && "bg-primary/20"
+                      "text-white hover:bg-white/20 cursor-pointer gap-2",
+                      displayMode === 'fit' && "bg-primary/30"
                     )}
                   >
-                    Auto
+                    <RectangleHorizontal className="w-4 h-4" />
+                    Fit (no crop)
                   </DropdownMenuItem>
-                  {qualities.map((quality) => (
-                    <DropdownMenuItem
-                      key={quality.id}
-                      onClick={() => handleQualityChange(quality.id)}
-                      className={cn(
-                        "text-white hover:bg-white/20",
-                        currentQuality === quality.id && "bg-primary/20"
-                      )}
-                    >
-                      {quality.label}
-                    </DropdownMenuItem>
-                  ))}
+                  <DropdownMenuItem
+                    onClick={() => handleDisplayModeChange('fill')}
+                    className={cn(
+                      "text-white hover:bg-white/20 cursor-pointer gap-2",
+                      displayMode === 'fill' && "bg-primary/30"
+                    )}
+                  >
+                    <Scan className="w-4 h-4" />
+                    Fill (crop)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleDisplayModeChange('stretch')}
+                    className={cn(
+                      "text-white hover:bg-white/20 cursor-pointer gap-2",
+                      displayMode === 'stretch' && "bg-primary/30"
+                    )}
+                  >
+                    <Move className="w-4 h-4" />
+                    Stretch (no bars)
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
+
+              {qualities.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-white hover:bg-white/20 gap-1"
+                    >
+                      <Settings className="w-4 h-4" />
+                      {getCurrentQualityLabel()}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="bg-black border-white/20 z-50 max-h-[calc(100vh-5rem)] overflow-y-auto"
+                  >
+                    <DropdownMenuItem
+                      onClick={handleAutoQuality}
+                      className={cn(
+                        "text-white hover:bg-white/20 cursor-pointer",
+                        currentQuality === -1 && "bg-primary/30"
+                      )}
+                    >
+                      Auto
+                    </DropdownMenuItem>
+                    {qualities.map((quality) => (
+                      <DropdownMenuItem
+                        key={quality.id}
+                        onClick={() => handleQualityChange(quality.id)}
+                        className={cn(
+                          "text-white hover:bg-white/20 cursor-pointer",
+                          currentQuality === quality.id && "bg-primary/30"
+                        )}
+                      >
+                        {quality.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-white/20"
+                onClick={toggleFullscreen}
+              >
+                {isFullscreen ? (
+                  <Minimize className="w-6 h-6" />
+                ) : (
+                  <Maximize className="w-6 h-6" />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
