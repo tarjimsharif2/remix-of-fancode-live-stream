@@ -148,4 +148,17 @@
   .card-hover {
     @apply transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl;
   }
+
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
 }
