@@ -450,17 +450,10 @@ const CricHdWatch = () => {
       onMouseMove={showControlsTemporarily}
       onTouchStart={showControlsTemporarily}
     >
-      {/* Loading state - animated gradient background instead of black */}
+      {/* Loading state - minimal spinner only */}
       {(isLoading || isRefreshing) && (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          {/* Animated gradient background */}
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 animate-pulse" />
-          {/* Shimmer effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
-          {/* Center spinner */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-12 h-12 border-3 border-primary/30 border-t-primary rounded-full animate-spin" />
-          </div>
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
