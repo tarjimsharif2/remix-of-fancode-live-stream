@@ -270,7 +270,14 @@ const MyPlayWatch = () => {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        backBufferLength: 90,
+        backBufferLength: 30,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 30,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 4,
+        liveDurationInfinity: true,
+        startLevel: -1,
+        capLevelToPlayerSize: false,
       });
 
       hlsRef.current = hls;
@@ -496,10 +503,7 @@ const MyPlayWatch = () => {
   if (channelLoading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-white">Loading channel...</p>
-        </div>
+        <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -526,25 +530,10 @@ const MyPlayWatch = () => {
       onMouseMove={showControlsTemporarily}
       onTouchStart={showControlsTemporarily}
     >
-      {/* Loading state */}
+      {/* Loading state - minimal spinner only */}
       {(isLoading || isRefreshing) && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-white">
-              {isRefreshing ? "Refreshing stream..." : "Loading stream..."}
-            </p>
-            {streamMode === 'direct' && (
-              <p className="text-yellow-400 text-sm">
-                Using direct mode (proxy unavailable)
-              </p>
-            )}
-            {isRefreshing && retryCountRef.current > 0 && (
-              <p className="text-gray-400 text-sm">
-                Auto-retry {retryCountRef.current}/{MAX_AUTO_RETRIES}
-              </p>
-            )}
-          </div>
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
