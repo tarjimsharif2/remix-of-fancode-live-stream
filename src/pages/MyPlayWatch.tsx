@@ -554,10 +554,8 @@ const MyPlayWatch = () => {
         </div>
       )}
 
-      {/* Animated background - always visible as base layer */}
-      <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
-      </div>
+      {/* Dark background - always visible as base layer */}
+      <div className="absolute inset-0 bg-black" />
 
       {/* Video player - only visible when not loading */}
       <video
