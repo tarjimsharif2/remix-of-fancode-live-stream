@@ -530,20 +530,6 @@ const MyPlayWatch = () => {
       onMouseMove={showControlsTemporarily}
       onTouchStart={showControlsTemporarily}
     >
-      {/* Loading state - animated gradient background instead of black */}
-      {(isLoading || isRefreshing) && (
-        <div className="absolute inset-0 z-10 pointer-events-none">
-          {/* Animated gradient background */}
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 animate-pulse" />
-          {/* Shimmer effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
-          {/* Center spinner */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-12 h-12 border-3 border-primary/30 border-t-primary rounded-full animate-spin" />
-          </div>
-        </div>
-      )}
-
       {/* Error state */}
       {error && !channelLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
@@ -568,14 +554,30 @@ const MyPlayWatch = () => {
         </div>
       )}
 
-      {/* Video player */}
+      {/* Animated background - always visible as base layer */}
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
+      </div>
+
+      {/* Video player - only visible when not loading */}
       <video
         ref={videoRef}
-        className={cn("w-full h-full", getDisplayModeClass())}
+        className={cn(
+          "w-full h-full relative z-[1] transition-opacity duration-300",
+          getDisplayModeClass(),
+          (isLoading || isRefreshing) ? "opacity-0" : "opacity-100"
+        )}
         playsInline
         muted={isMuted}
         autoPlay
       />
+
+      {/* Center spinner during loading */}
+      {(isLoading || isRefreshing) && (
+        <div className="absolute inset-0 flex items-center justify-center z-[2] pointer-events-none">
+          <div className="w-12 h-12 border-3 border-primary/30 border-t-primary rounded-full animate-spin" />
+        </div>
+      )}
 
       {/* Controls overlay */}
       <div
