@@ -51,6 +51,7 @@ const MyPlayWatch = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
@@ -382,6 +383,29 @@ const MyPlayWatch = () => {
     }
   }, [channel, getStreamUrl, checkProxyAndPlay, switchToDirectMode, refreshAndRetry, streamMode]);
 
+  // Video buffering event listeners
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleWaiting = () => setIsBuffering(true);
+    const handlePlaying = () => setIsBuffering(false);
+    const handleCanPlay = () => setIsBuffering(false);
+    const handleStalled = () => setIsBuffering(true);
+
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('stalled', handleStalled);
+
+    return () => {
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('stalled', handleStalled);
+    };
+  }, [channel]);
+
   useEffect(() => {
     if (channel) {
       initPlayer();
@@ -551,8 +575,8 @@ const MyPlayWatch = () => {
       onMouseMove={showControlsTemporarily}
       onTouchStart={showControlsTemporarily}
     >
-      {/* Loading state - minimal spinner only */}
-      {(isLoading || isRefreshing) && (
+      {/* Loading/Buffering state - minimal spinner only */}
+      {(isLoading || isRefreshing || isBuffering) && !error && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
