@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX } from "lucide-react";
+import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX, Maximize, Minimize, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -105,6 +105,7 @@ const Watch = () => {
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Check iframe access on mount - fetch allowed domains from database
   useEffect(() => {
@@ -253,23 +254,29 @@ const Watch = () => {
           hlsjsConfig: {
             enableWorker: true,
             lowLatencyMode: true,
-            // Fast but stable buffer (avoid stalls)
-            maxBufferLength: 12,
-            maxMaxBufferLength: 30,
-            maxBufferSize: 30 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            // Let ABR pick a good start level
-            startLevel: -1,
-            abrEwmaDefaultEstimate: 4000000,
-            abrBandWidthFactor: 0.95,
-            abrBandWidthUpFactor: 0.7,
-            // Reasonable timeouts
-            fragLoadingTimeOut: 7000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 400,
-            // Live tuning
+            // Faster initial load - smaller buffer
+            maxBufferLength: 8,
+            maxMaxBufferLength: 20,
+            maxBufferSize: 20 * 1000 * 1000,
+            maxBufferHole: 0.3,
+            // Start with lowest quality for fast initial load
+            startLevel: 0,
+            abrEwmaDefaultEstimate: 3000000,
+            abrBandWidthFactor: 0.9,
+            abrBandWidthUpFactor: 0.6,
+            // Faster timeouts for quicker recovery
+            fragLoadingTimeOut: 5000,
+            fragLoadingMaxRetry: 2,
+            fragLoadingRetryDelay: 300,
+            manifestLoadingTimeOut: 5000,
+            manifestLoadingMaxRetry: 2,
+            levelLoadingTimeOut: 5000,
+            // Live tuning for low latency
             liveSyncDurationCount: 2,
-            liveMaxLatencyDurationCount: 4,
+            liveMaxLatencyDurationCount: 3,
+            // Faster ABR switching
+            abrEwmaFastLive: 3,
+            abrEwmaSlowLive: 9,
           }
         },
         hlsPlayback: {
@@ -473,6 +480,41 @@ const Watch = () => {
     }
   };
 
+  const toggleFullscreen = async () => {
+    try {
+      const container = playerContainerRef.current?.parentElement;
+      if (!container) return;
+
+      if (isFullscreen) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        }
+      } else {
+        if (container.requestFullscreen) {
+          await container.requestFullscreen();
+        } else if ((container as any).webkitRequestFullscreen) {
+          await (container as any).webkitRequestFullscreen();
+        }
+      }
+    } catch (err) {
+      console.error('Fullscreen error:', err);
+    }
+  };
+
+  const toggleMute = () => {
+    try {
+      const videoElement = playerRef.current?.core?.getCurrentPlayback?.()?.el;
+      if (videoElement) {
+        videoElement.muted = !videoElement.muted;
+        setIsMuted(videoElement.muted);
+      }
+    } catch (err) {
+      console.error('Mute error:', err);
+    }
+  };
+
   // Lock to landscape when entering fullscreen on mobile
   const lockLandscape = async () => {
     try {
@@ -515,34 +557,34 @@ const Watch = () => {
     };
   }, []);
 
-  // Auto-hide controls with proper timeout management
+  // Auto-hide controls after 3 seconds of inactivity (always, regardless of play/pause)
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     
-    const hideControlsIfPlaying = () => {
-      if (isPlaying) {
-        setShowControls(false);
-      }
+    const hideControls = () => {
+      setShowControls(false);
     };
     
     const handleInteraction = () => {
       setShowControls(true);
       clearTimeout(timeout);
-      timeout = setTimeout(hideControlsIfPlaying, 3000);
+      timeout = setTimeout(hideControls, 3000);
     };
 
     window.addEventListener('mousemove', handleInteraction);
     window.addEventListener('touchstart', handleInteraction);
+    window.addEventListener('click', handleInteraction);
     
     // Initial hide timer
-    timeout = setTimeout(hideControlsIfPlaying, 3000);
+    timeout = setTimeout(hideControls, 3000);
 
     return () => {
       window.removeEventListener('mousemove', handleInteraction);
       window.removeEventListener('touchstart', handleInteraction);
+      window.removeEventListener('click', handleInteraction);
       clearTimeout(timeout);
     };
-  }, [isPlaying]);
+  }, []);
 
   const handleRetry = () => {
     setRetryCount(0);
@@ -605,12 +647,6 @@ const Watch = () => {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
-      {/* Loading/Buffering spinner */}
-      {(isLoading || isFetchingStream || isBuffering) && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      )}
 
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 z-10 bg-black">
@@ -632,14 +668,34 @@ const Watch = () => {
         </div>
       ) : null}
 
-      {/* Top Controls - show when controls visible and not in error/loading state */}
-      {showControls && !isLoading && !isFetchingStream && !error && (
+      {/* Top Controls - show when controls visible and not in error state */}
+      {showControls && !error && (
         <div 
           className={cn(
             "absolute top-4 right-4 z-20 flex gap-2 transition-opacity duration-300",
             showControls ? "opacity-100" : "opacity-0 pointer-events-none"
           )}
         >
+          {/* Mute/Unmute */}
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={toggleMute}
+            className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
+          >
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </Button>
+
+          {/* Fullscreen */}
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={toggleFullscreen}
+            className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
+          >
+            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          </Button>
+
           {isPiPSupported && (
             <Button 
               variant="outline" 
@@ -709,7 +765,7 @@ const Watch = () => {
         ref={playerContainerRef} 
         className={cn(
           "w-full h-full",
-          (isLoading || isFetchingStream || error) && "invisible"
+          error && "invisible"
         )}
       />
     </div>
