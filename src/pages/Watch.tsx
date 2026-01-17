@@ -611,6 +611,12 @@ const Watch = () => {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
+      {/* Loading/Buffering spinner */}
+      {(isLoading || isFetchingStream || isBuffering) && !error && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
 
       {error ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 z-10 bg-black">
