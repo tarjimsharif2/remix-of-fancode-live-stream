@@ -93,6 +93,8 @@ const Watch = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingStream, setIsFetchingStream] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [showControls, setShowControls] = useState(true);
@@ -102,6 +104,7 @@ const Watch = () => {
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Check iframe access on mount - fetch allowed domains from database
   useEffect(() => {
@@ -276,26 +279,26 @@ const Watch = () => {
         mute: false,
         disableVideoTagContextMenu: true,
         disableKeyboardShortcuts: true,
-        chromeless: false,
-        allowUserInteraction: false,
-        clickToPause: false,
+        chromeless: true, // Use chromeless mode with custom controls
         height: '100%',
         width: '100%',
-        mediacontrol: {
-          seekbar: '#10b981',
-          buttons: '#ffffff'
-        },
         events: {
           onError: (e: any) => {
             console.error('Clappr error:', e);
             setError('The match has not started yet or the stream is unavailable.');
             setIsLoading(false);
+            setIsBuffering(false);
             startAutoRetry();
           },
           onPlay: () => {
             setIsLoading(false);
+            setIsBuffering(false);
+            setIsPlaying(true);
             setRetryCount(0);
             stopAutoRetry();
+          },
+          onPause: () => {
+            setIsPlaying(false);
           },
           onReady: () => {
             setIsLoading(false);
@@ -359,6 +362,11 @@ const Watch = () => {
             if (videoElement) {
               videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
               videoElement.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
+              // Buffering detection
+              videoElement.addEventListener('waiting', () => setIsBuffering(true));
+              videoElement.addEventListener('playing', () => setIsBuffering(false));
+              videoElement.addEventListener('canplay', () => setIsBuffering(false));
+              videoElement.addEventListener('stalled', () => setIsBuffering(true));
             }
           }
         }
@@ -489,8 +497,9 @@ const Watch = () => {
   // Listen for fullscreen changes to lock/unlock orientation
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFullscreen = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
-      if (isFullscreen) {
+      const isNowFullscreen = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      setIsFullscreen(isNowFullscreen);
+      if (isNowFullscreen) {
         lockLandscape();
       } else {
         unlockOrientation();
@@ -506,25 +515,34 @@ const Watch = () => {
     };
   }, []);
 
+  // Auto-hide controls with proper timeout management
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     
-    const handleMouseMove = () => {
+    const hideControlsIfPlaying = () => {
+      if (isPlaying) {
+        setShowControls(false);
+      }
+    };
+    
+    const handleInteraction = () => {
       setShowControls(true);
       clearTimeout(timeout);
-      timeout = setTimeout(() => setShowControls(false), 3000);
+      timeout = setTimeout(hideControlsIfPlaying, 3000);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('touchstart', handleMouseMove);
-    timeout = setTimeout(() => setShowControls(false), 3000);
+    window.addEventListener('mousemove', handleInteraction);
+    window.addEventListener('touchstart', handleInteraction);
+    
+    // Initial hide timer
+    timeout = setTimeout(hideControlsIfPlaying, 3000);
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('touchstart', handleMouseMove);
+      window.removeEventListener('mousemove', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
       clearTimeout(timeout);
     };
-  }, []);
+  }, [isPlaying]);
 
   const handleRetry = () => {
     setRetryCount(0);
@@ -587,8 +605,9 @@ const Watch = () => {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black overflow-hidden">
-      {(isLoading || isFetchingStream) && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black">
+      {/* Loading/Buffering spinner */}
+      {(isLoading || isFetchingStream || isBuffering) && !error && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
@@ -613,10 +632,13 @@ const Watch = () => {
         </div>
       ) : null}
 
-      {/* Top Controls */}
-      {!isLoading && !isFetchingStream && !error && (
+      {/* Top Controls - show when controls visible and not in error/loading state */}
+      {showControls && !isLoading && !isFetchingStream && !error && (
         <div 
-          className="absolute top-4 right-4 z-20 flex gap-2"
+          className={cn(
+            "absolute top-4 right-4 z-20 flex gap-2 transition-opacity duration-300",
+            showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
         >
           {isPiPSupported && (
             <Button 
