@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX, Maximize, Minimize, Volume2, VolumeX } from "lucide-react";
+import { Globe, RefreshCw, Settings, PictureInPicture2, ShieldX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -105,7 +105,6 @@ const Watch = () => {
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
 
   // Check iframe access on mount - fetch allowed domains from database
   useEffect(() => {
@@ -480,41 +479,6 @@ const Watch = () => {
     }
   };
 
-  const toggleFullscreen = async () => {
-    try {
-      const container = playerContainerRef.current?.parentElement;
-      if (!container) return;
-
-      if (isFullscreen) {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if ((document as any).webkitExitFullscreen) {
-          await (document as any).webkitExitFullscreen();
-        }
-      } else {
-        if (container.requestFullscreen) {
-          await container.requestFullscreen();
-        } else if ((container as any).webkitRequestFullscreen) {
-          await (container as any).webkitRequestFullscreen();
-        }
-      }
-    } catch (err) {
-      console.error('Fullscreen error:', err);
-    }
-  };
-
-  const toggleMute = () => {
-    try {
-      const videoElement = playerRef.current?.core?.getCurrentPlayback?.()?.el;
-      if (videoElement) {
-        videoElement.muted = !videoElement.muted;
-        setIsMuted(videoElement.muted);
-      }
-    } catch (err) {
-      console.error('Mute error:', err);
-    }
-  };
-
   // Lock to landscape when entering fullscreen on mobile
   const lockLandscape = async () => {
     try {
@@ -676,26 +640,6 @@ const Watch = () => {
             showControls ? "opacity-100" : "opacity-0 pointer-events-none"
           )}
         >
-          {/* Mute/Unmute */}
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={toggleMute}
-            className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
-          >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </Button>
-
-          {/* Fullscreen */}
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={toggleFullscreen}
-            className="bg-black/60 border-white/20 text-white hover:bg-black/80 backdrop-blur-sm"
-          >
-            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-          </Button>
-
           {isPiPSupported && (
             <Button 
               variant="outline" 
