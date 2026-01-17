@@ -151,12 +151,27 @@ const MyPlayWatch = () => {
     return proxyUrl.toString();
   }, [channel]);
 
+  // Check if URL is HTTP (non-secure) - must always use proxy for mixed content
+  const isHttpUrl = useCallback((url: string) => {
+    try {
+      return new URL(url).protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }, []);
+
   const getStreamUrl = useCallback((url: string) => {
+    // HTTP URLs must always go through proxy (mixed content blocking)
+    if (isHttpUrl(url)) {
+      const proxied = getProxyUrl(url);
+      lastProxyUrlRef.current = proxied;
+      return proxied;
+    }
     if (streamMode === 'direct') return url;
     const proxied = getProxyUrl(url);
     lastProxyUrlRef.current = proxied;
     return proxied;
-  }, [getProxyUrl, streamMode]);
+  }, [getProxyUrl, streamMode, isHttpUrl]);
 
   // Auto-refresh channel and retry stream on errors
   const refreshAndRetry = useCallback(async () => {
@@ -191,15 +206,21 @@ const MyPlayWatch = () => {
   const PROXY_UNREACHABLE_CODES = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
 
   // If proxy cannot reach the upstream (DNS/SSL/etc), automatically try direct playback once.
+  // But never switch to direct for HTTP URLs (mixed content would fail)
   const switchToDirectMode = useCallback(() => {
     if (triedDirectFallbackRef.current) return false;
+    // Don't switch to direct for HTTP URLs - browser will block mixed content
+    if (channel?.stream_url && isHttpUrl(channel.stream_url)) {
+      console.log('HTTP stream detected, cannot use direct mode (mixed content)');
+      return false;
+    }
     console.log('Switching to direct stream mode (proxy unreachable)');
     triedDirectFallbackRef.current = true;
     setStreamMode('direct');
     setError(null);
     setIsLoading(true);
     return true;
-  }, []);
+  }, [channel?.stream_url, isHttpUrl]);
 
   // Pre-check proxy URL before initializing player
   const checkProxyAndPlay = useCallback(async (url: string): Promise<{ canUseProxy: boolean; errorCode?: string }> => {
