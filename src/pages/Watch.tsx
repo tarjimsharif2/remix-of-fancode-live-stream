@@ -709,7 +709,7 @@ const Watch = () => {
         ref={playerContainerRef} 
         className={cn(
           "w-full h-full",
-          error && "invisible"
+          (isLoading || isFetchingStream || error) && "invisible"
         )}
       />
     </div>
