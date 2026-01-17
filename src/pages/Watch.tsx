@@ -632,8 +632,8 @@ const Watch = () => {
         </div>
       ) : null}
 
-      {/* Top Controls - show when controls visible and not in error/loading state */}
-      {showControls && !isLoading && !isFetchingStream && !error && (
+      {/* Top Controls - show when controls visible and not in error state */}
+      {showControls && !error && (
         <div 
           className={cn(
             "absolute top-4 right-4 z-20 flex gap-2 transition-opacity duration-300",
