@@ -253,23 +253,29 @@ const Watch = () => {
           hlsjsConfig: {
             enableWorker: true,
             lowLatencyMode: true,
-            // Fast but stable buffer (avoid stalls)
-            maxBufferLength: 12,
-            maxMaxBufferLength: 30,
-            maxBufferSize: 30 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            // Let ABR pick a good start level
-            startLevel: -1,
-            abrEwmaDefaultEstimate: 4000000,
-            abrBandWidthFactor: 0.95,
-            abrBandWidthUpFactor: 0.7,
-            // Reasonable timeouts
-            fragLoadingTimeOut: 7000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 400,
-            // Live tuning
+            // Faster initial load - smaller buffer
+            maxBufferLength: 8,
+            maxMaxBufferLength: 20,
+            maxBufferSize: 20 * 1000 * 1000,
+            maxBufferHole: 0.3,
+            // Start with lowest quality for fast initial load
+            startLevel: 0,
+            abrEwmaDefaultEstimate: 3000000,
+            abrBandWidthFactor: 0.9,
+            abrBandWidthUpFactor: 0.6,
+            // Faster timeouts for quicker recovery
+            fragLoadingTimeOut: 5000,
+            fragLoadingMaxRetry: 2,
+            fragLoadingRetryDelay: 300,
+            manifestLoadingTimeOut: 5000,
+            manifestLoadingMaxRetry: 2,
+            levelLoadingTimeOut: 5000,
+            // Live tuning for low latency
             liveSyncDurationCount: 2,
-            liveMaxLatencyDurationCount: 4,
+            liveMaxLatencyDurationCount: 3,
+            // Faster ABR switching
+            abrEwmaFastLive: 3,
+            abrEwmaSlowLive: 9,
           }
         },
         hlsPlayback: {
@@ -515,34 +521,34 @@ const Watch = () => {
     };
   }, []);
 
-  // Auto-hide controls with proper timeout management
+  // Auto-hide controls after 3 seconds of inactivity (always, regardless of play/pause)
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     
-    const hideControlsIfPlaying = () => {
-      if (isPlaying) {
-        setShowControls(false);
-      }
+    const hideControls = () => {
+      setShowControls(false);
     };
     
     const handleInteraction = () => {
       setShowControls(true);
       clearTimeout(timeout);
-      timeout = setTimeout(hideControlsIfPlaying, 3000);
+      timeout = setTimeout(hideControls, 3000);
     };
 
     window.addEventListener('mousemove', handleInteraction);
     window.addEventListener('touchstart', handleInteraction);
+    window.addEventListener('click', handleInteraction);
     
     // Initial hide timer
-    timeout = setTimeout(hideControlsIfPlaying, 3000);
+    timeout = setTimeout(hideControls, 3000);
 
     return () => {
       window.removeEventListener('mousemove', handleInteraction);
       window.removeEventListener('touchstart', handleInteraction);
+      window.removeEventListener('click', handleInteraction);
       clearTimeout(timeout);
     };
-  }, [isPlaying]);
+  }, []);
 
   const handleRetry = () => {
     setRetryCount(0);
