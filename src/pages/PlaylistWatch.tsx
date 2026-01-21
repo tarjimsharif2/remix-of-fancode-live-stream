@@ -5,7 +5,23 @@ import { Footer } from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import { M3uPlaylist, M3uChannel } from "@/types/m3uPlaylist";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, ArrowLeft, RefreshCw, ChevronLeft, ChevronRight, Play, Pause, Volume2, VolumeX, Maximize2, Minimize2 } from "lucide-react";
+import { 
+  AlertCircle, 
+  ArrowLeft, 
+  RefreshCw, 
+  ChevronLeft, 
+  ChevronRight, 
+  Play, 
+  Pause, 
+  Volume2, 
+  VolumeX, 
+  Maximize, 
+  Minimize, 
+  Settings,
+  RectangleHorizontal,
+  Scan,
+  Move 
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import Hls from "hls.js";
 import {
@@ -55,13 +71,21 @@ const PlaylistWatch = () => {
   const navigate = useNavigate();
   const channelIndex = parseInt(searchParams.get("index") || "0", 10);
 
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const MAX_AUTO_RETRIES = 2;
+  const triedDirectFallbackRef = useRef(false);
+
   const [playlist, setPlaylist] = useState<M3uPlaylist | null>(null);
   const [channels, setChannels] = useState<M3uChannel[]>([]);
   const [currentChannel, setCurrentChannel] = useState<M3uChannel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-  const maxRetries = 3;
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -69,18 +93,13 @@ const PlaylistWatch = () => {
   const [showControls, setShowControls] = useState(true);
   const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
-  const [displayMode, setDisplayMode] = useState<'contain' | 'cover' | 'fill'>(() => {
+  const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('playlist-display-mode');
-    return (saved as 'contain' | 'cover' | 'fill') || 'contain';
+    return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
   });
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const controlsTimeoutRef = useRef<number | null>(null);
-
   // Fetch fresh M3U content each time
-  const fetchFreshData = useCallback(async () => {
+  const fetchFreshData = useCallback(async (): Promise<M3uChannel[] | null> => {
     if (!slug) return null;
 
     try {
@@ -101,11 +120,13 @@ const PlaylistWatch = () => {
       const m3uUrl = new URL(playlistData.url);
       m3uUrl.searchParams.set('_t', Date.now().toString());
       
+      console.log('Fetching M3U from:', m3uUrl.toString());
       const response = await fetch(m3uUrl.toString());
       if (!response.ok) throw new Error('Failed to fetch M3U playlist');
 
       const content = await response.text();
       const parsedChannels = parseM3u(content);
+      console.log('Parsed channels:', parsedChannels.length);
       setChannels(parsedChannels);
 
       return parsedChannels;
@@ -117,12 +138,136 @@ const PlaylistWatch = () => {
 
   const getProxyUrl = useCallback((url: string) => {
     if (!url) return '';
-    
-    const proxyUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stream-proxy`);
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
-    
     return proxyUrl.toString();
   }, []);
+
+  // Check if URL is HTTP (non-secure) - must always use proxy for mixed content
+  const isHttpUrl = useCallback((url: string) => {
+    try {
+      return new URL(url).protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const getStreamUrl = useCallback((url: string) => {
+    // HTTP URLs must always go through proxy (mixed content blocking)
+    if (isHttpUrl(url)) {
+      return getProxyUrl(url);
+    }
+    if (streamMode === 'direct') return url;
+    return getProxyUrl(url);
+  }, [getProxyUrl, streamMode, isHttpUrl]);
+
+  const lockLandscape = useCallback(async () => {
+    try {
+      if (screen.orientation && 'lock' in screen.orientation) {
+        await (screen.orientation as any).lock('landscape');
+      }
+    } catch (err) {
+      console.log('Could not lock orientation:', err);
+    }
+  }, []);
+
+  const unlockOrientation = useCallback(() => {
+    try {
+      if (screen.orientation && 'unlock' in screen.orientation) {
+        screen.orientation.unlock();
+      }
+    } catch (err) {
+      console.log('Could not unlock orientation:', err);
+    }
+  }, []);
+
+  // Switch to direct mode if proxy fails
+  const switchToDirectMode = useCallback((streamUrl: string) => {
+    if (triedDirectFallbackRef.current) return false;
+    // Don't switch to direct for HTTP URLs - browser will block mixed content
+    if (isHttpUrl(streamUrl)) {
+      console.log('HTTP stream detected, cannot use direct mode (mixed content)');
+      return false;
+    }
+    console.log('Switching to direct stream mode (proxy unreachable)');
+    triedDirectFallbackRef.current = true;
+    setStreamMode('direct');
+    setError(null);
+    setLoading(true);
+    return true;
+  }, [isHttpUrl]);
+
+  // Codes that indicate proxy couldn't reach the host
+  const PROXY_UNREACHABLE_CODES = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
+
+  // Pre-check proxy URL before initializing player
+  const checkProxyAndPlay = useCallback(async (url: string): Promise<{ canUseProxy: boolean; errorCode?: string }> => {
+    if (streamMode === 'direct') return { canUseProxy: false };
+    
+    const proxyUrl = getProxyUrl(url);
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const res = await fetch(proxyUrl, { 
+        method: 'GET',
+        signal: controller.signal 
+      });
+      clearTimeout(timeoutId);
+      
+      const ct = res.headers.get('content-type') || '';
+      
+      // If response is JSON, it's an error from the proxy
+      if (ct.includes('application/json')) {
+        const body = await res.json();
+        const code = body?.code || '';
+        console.log('Proxy returned error:', code, body?.error);
+        
+        if (PROXY_UNREACHABLE_CODES.has(code)) {
+          return { canUseProxy: false, errorCode: code };
+        }
+      }
+      
+      return { canUseProxy: true };
+    } catch (e) {
+      console.log('Proxy check failed:', e);
+      return { canUseProxy: false, errorCode: 'FETCH_ERROR' };
+    }
+  }, [getProxyUrl, streamMode]);
+
+  // Auto-refresh channel and retry stream on errors
+  const refreshAndRetry = useCallback(async () => {
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) {
+      console.log('Max auto-retries reached, showing error');
+      setError("Stream unavailable. Please try again later.");
+      setLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
+
+    retryCountRef.current += 1;
+    console.log(`Auto-retry attempt ${retryCountRef.current}/${MAX_AUTO_RETRIES}`);
+
+    setIsRefreshing(true);
+    setError(null);
+
+    try {
+      const freshChannels = await fetchFreshData();
+
+      if (freshChannels && freshChannels.length > 0) {
+        const channel = freshChannels[channelIndex];
+        if (channel) {
+          setCurrentChannel(channel);
+        }
+      }
+    } catch (err) {
+      setError("Failed to refresh channel data");
+      setLoading(false);
+    }
+    setIsRefreshing(false);
+  }, [fetchFreshData, channelIndex]);
 
   const initPlayer = useCallback(async () => {
     const video = videoRef.current;
@@ -141,7 +286,7 @@ const PlaylistWatch = () => {
       // Fetch fresh data each time
       const freshChannels = await fetchFreshData();
       if (!freshChannels || freshChannels.length === 0) {
-        throw new Error('No channels found');
+        throw new Error('No channels found in playlist');
       }
 
       const channel = freshChannels[channelIndex];
@@ -150,57 +295,83 @@ const PlaylistWatch = () => {
       }
 
       setCurrentChannel(channel);
+      console.log('Playing channel:', channel.name, 'URL:', channel.url);
 
-      const streamUrl = getProxyUrl(channel.url);
+      // If using proxy mode, pre-check if proxy can reach the stream
+      if (streamMode === 'proxy') {
+        const { canUseProxy, errorCode } = await checkProxyAndPlay(channel.url);
+        if (!canUseProxy && errorCode) {
+          console.log(`Proxy failed with ${errorCode}, switching to direct mode`);
+          if (switchToDirectMode(channel.url)) {
+            return; // Will re-init with direct mode via useEffect
+          }
+        }
+      }
+
+      const streamUrl = getStreamUrl(channel.url);
+      console.log('Using stream URL:', streamUrl, '(mode:', streamMode, ')');
 
       if (Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-          manifestLoadingTimeOut: 20000,
-          manifestLoadingMaxRetry: 3,
-          levelLoadingTimeOut: 20000,
-          fragLoadingTimeOut: 25000,
+          backBufferLength: 30,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 30,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 4,
+          liveDurationInfinity: true,
+          startLevel: -1,
+          capLevelToPlayerSize: false,
         });
 
         hlsRef.current = hls;
-
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          retryCountRef.current = 0;
           setLoading(false);
-          
-          // Extract quality levels
-          const levels: QualityLevel[] = data.levels.map((level, index) => ({
-            id: index,
-            height: level.height || 0,
-            label: level.height ? `${level.height}p` : `Level ${index + 1}`,
-          }));
-          
-          levels.unshift({ id: -1, height: 0, label: 'Auto' });
-          setQualityLevels(levels);
-          setCurrentQuality(-1);
-
+          video.muted = false;
           video.play().then(() => setIsPlaying(true)).catch(console.error);
+
+          // Extract quality levels
+          if (data.levels && data.levels.length > 0) {
+            const levels: QualityLevel[] = data.levels
+              .map((level, index) => ({
+                id: index,
+                height: level.height || 0,
+                label: level.height ? `${level.height}p` : `${Math.round((level.bitrate || 0) / 1000)}kbps`,
+              }))
+              .filter((q) => q.height > 0)
+              .sort((a, b) => b.height - a.height);
+            
+            setQualityLevels(levels);
+          }
+          setCurrentQuality(-1);
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
-          console.error("HLS Error:", data);
           if (data.fatal) {
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              // Auto-refresh on network/manifest errors
-              if (retryCount < maxRetries) {
-                console.log('Auto-refreshing stream...');
-                setRetryCount(prev => prev + 1);
-              } else {
-                setError("Stream unavailable. Please try again.");
-                setLoading(false);
+            console.error("HLS fatal error:", data);
+
+            const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+            const isManifestError =
+              data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+              data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
+
+            // If proxy mode and network error, try switching to direct
+            if ((isNetworkError || isManifestError) && streamMode === 'proxy' && currentChannel) {
+              if (switchToDirectMode(currentChannel.url)) {
+                return; // Will re-init via useEffect
               }
+            }
+
+            if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
+              console.log('Network/manifest error detected, auto-refreshing...');
+              refreshAndRetry();
             } else {
-              setError("Failed to load stream.");
+              setError("Stream error. Please try again.");
               setLoading(false);
             }
           }
@@ -208,15 +379,29 @@ const PlaylistWatch = () => {
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
         video.addEventListener('loadedmetadata', () => {
+          retryCountRef.current = 0;
           setLoading(false);
+          video.muted = false;
           video.play().then(() => setIsPlaying(true)).catch(console.error);
         });
         video.addEventListener('error', () => {
-          setError("Stream unavailable.");
-          setLoading(false);
+          // If proxy mode and error, try switching to direct
+          if (streamMode === 'proxy' && currentChannel) {
+            if (switchToDirectMode(currentChannel.url)) {
+              return;
+            }
+          }
+
+          if (retryCountRef.current < MAX_AUTO_RETRIES) {
+            console.log('Video error detected, auto-refreshing...');
+            refreshAndRetry();
+          } else {
+            setError("Stream error. Please try again.");
+            setLoading(false);
+          }
         });
       } else {
-        setError("HLS streaming not supported");
+        setError("HLS not supported in this browser");
         setLoading(false);
       }
     } catch (err) {
@@ -224,41 +409,52 @@ const PlaylistWatch = () => {
       setError(err instanceof Error ? err.message : 'Failed to load stream');
       setLoading(false);
     }
-  }, [fetchFreshData, channelIndex, getProxyUrl, retryCount]);
+  }, [fetchFreshData, channelIndex, getStreamUrl, checkProxyAndPlay, switchToDirectMode, refreshAndRetry, streamMode, currentChannel]);
 
+  // Initialize player on mount and channel change
   useEffect(() => {
+    triedDirectFallbackRef.current = false;
+    setStreamMode('proxy');
+    retryCountRef.current = 0;
     initPlayer();
 
     return () => {
       if (hlsRef.current) {
         hlsRef.current.destroy();
+        hlsRef.current = null;
       }
+      unlockOrientation();
     };
-  }, [channelIndex, retryCount]);
+  }, [channelIndex, slug]);
+
+  // Re-init when stream mode changes
+  useEffect(() => {
+    if (currentChannel && streamMode === 'direct') {
+      initPlayer();
+    }
+  }, [streamMode]);
 
   // Fullscreen handling
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFs = !!document.fullscreenElement;
-      setIsFullscreen(isFs);
+      const isNowFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isNowFullscreen);
       
-      const orientation = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void>; unlock?: () => void };
-      if (isFs && orientation?.lock) {
-        orientation.lock('landscape').catch(() => {});
-      } else if (!isFs && orientation?.unlock) {
-        orientation.unlock();
+      if (isNowFullscreen) {
+        lockLandscape();
+      } else {
+        unlockOrientation();
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
-      if (orientation?.unlock) {
-        orientation.unlock();
-      }
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [lockLandscape, unlockOrientation]);
 
   // Controls visibility
   useEffect(() => {
@@ -267,7 +463,7 @@ const PlaylistWatch = () => {
         clearTimeout(controlsTimeoutRef.current);
       }
       setShowControls(true);
-      controlsTimeoutRef.current = window.setTimeout(() => {
+      controlsTimeoutRef.current = setTimeout(() => {
         if (isPlaying) setShowControls(false);
       }, 3000);
     };
@@ -296,22 +492,29 @@ const PlaylistWatch = () => {
 
   const handleClose = () => navigate(`/playlist/${slug}`);
   
-  const handleRetry = () => {
-    if (retryCount < maxRetries) {
-      setRetryCount(prev => prev + 1);
+  const handleRetry = async () => {
+    retryCountRef.current = 0;
+    triedDirectFallbackRef.current = false;
+    setStreamMode('proxy');
+    setIsRefreshing(true);
+    setError(null);
+
+    try {
+      await initPlayer();
+    } catch (err) {
+      console.error('Retry failed:', err);
     }
+    setIsRefreshing(false);
   };
 
   const handlePrevChannel = () => {
     if (channelIndex > 0) {
-      setRetryCount(0);
       navigate(`/playlist/${slug}/watch?index=${channelIndex - 1}`);
     }
   };
 
   const handleNextChannel = () => {
     if (channelIndex < channels.length - 1) {
-      setRetryCount(0);
       navigate(`/playlist/${slug}/watch?index=${channelIndex + 1}`);
     }
   };
@@ -337,32 +540,59 @@ const PlaylistWatch = () => {
     setIsMuted(video.muted);
   };
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = async () => {
     const container = containerRef.current;
     if (!container) return;
 
-    if (!document.fullscreenElement) {
-      container.requestFullscreen();
-    } else {
-      document.exitFullscreen();
+    try {
+      if (!document.fullscreenElement) {
+        await container.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("Fullscreen error:", err);
     }
   };
 
   const handleQualityChange = (levelId: number) => {
     if (hlsRef.current) {
       hlsRef.current.currentLevel = levelId;
+      hlsRef.current.nextLevel = levelId;
+      hlsRef.current.loadLevel = levelId;
       setCurrentQuality(levelId);
     }
   };
 
-  const getDisplayModeClass = () => {
-    switch (displayMode) {
-      case 'cover': return 'object-cover';
-      case 'fill': return 'object-fill';
-      default: return 'object-contain';
+  const handleAutoQuality = () => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = -1;
+      hlsRef.current.nextLevel = -1;
+      hlsRef.current.loadLevel = -1;
+      setCurrentQuality(-1);
     }
   };
 
+  const getCurrentQualityLabel = () => {
+    if (currentQuality === -1) return "Auto";
+    const quality = qualityLevels.find((q) => q.id === currentQuality);
+    return quality?.label || "Auto";
+  };
+
+  const handleDisplayModeChange = (mode: 'fit' | 'fill' | 'stretch') => {
+    setDisplayMode(mode);
+  };
+
+  const getDisplayModeClass = () => {
+    switch (displayMode) {
+      case 'fit': return 'object-contain';
+      case 'fill': return 'object-cover';
+      case 'stretch': return 'object-fill';
+      default: return 'object-fill';
+    }
+  };
+
+  // Loading state (no current channel yet)
   if (loading && !currentChannel) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
@@ -378,6 +608,7 @@ const PlaylistWatch = () => {
     );
   }
 
+  // Error state (no current channel)
   if (error && !currentChannel) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
@@ -391,9 +622,9 @@ const PlaylistWatch = () => {
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Playlist
               </Button>
-              <Button onClick={handleRetry} variant="outline" disabled={retryCount >= maxRetries}>
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Retry ({maxRetries - retryCount} left)
+              <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
+                <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
+                Retry
               </Button>
             </div>
           </div>
@@ -418,7 +649,7 @@ const PlaylistWatch = () => {
                   {currentChannel?.name || 'Loading...'}
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {playlist?.name} • Channel {channelIndex + 1} of {channels.length}
+                  {playlist?.name} • Channel {channelIndex + 1} of {channels.length || '...'}
                 </p>
               </div>
             </div>
@@ -435,7 +666,7 @@ const PlaylistWatch = () => {
                 variant="outline"
                 size="icon"
                 onClick={handleNextChannel}
-                disabled={channelIndex === channels.length - 1}
+                disabled={channels.length === 0 || channelIndex === channels.length - 1}
               >
                 <ChevronRight className="w-5 h-5" />
               </Button>
@@ -450,6 +681,7 @@ const PlaylistWatch = () => {
             isFullscreen ? "fixed inset-0 z-50" : "aspect-video w-full max-w-5xl mx-auto rounded-lg"
           )}
         >
+          {/* Loading overlay */}
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20">
               <div className="flex flex-col items-center gap-4">
@@ -459,17 +691,16 @@ const PlaylistWatch = () => {
             </div>
           )}
 
+          {/* Error overlay */}
           {error && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-20">
               <div className="flex flex-col items-center gap-4 text-center p-6">
                 <AlertCircle className="w-12 h-12 text-destructive" />
                 <p className="text-white">{error}</p>
-                <div className="flex gap-2">
-                  <Button onClick={handleRetry} variant="outline" disabled={retryCount >= maxRetries}>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Retry ({maxRetries - retryCount} left)
-                  </Button>
-                </div>
+                <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
+                  <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
+                  Retry
+                </Button>
               </div>
             </div>
           )}
@@ -493,52 +724,37 @@ const PlaylistWatch = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {isFullscreen && (
-                    <Button variant="ghost" size="icon" onClick={handleClose} className="text-white">
+                    <Button variant="ghost" size="icon" onClick={handleClose} className="text-white hover:bg-white/20">
                       <ArrowLeft className="w-5 h-5" />
                     </Button>
                   )}
                   <div>
-                    <h2 className="text-white font-bold text-lg">{currentChannel?.name}</h2>
+                    <h2 className="text-white font-semibold">{currentChannel?.name}</h2>
                     <p className="text-white/60 text-sm">{playlist?.name}</p>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {/* Display mode */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="text-white text-xs">
-                        {displayMode === 'contain' ? 'Fit' : displayMode === 'cover' ? 'Fill' : 'Stretch'}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem onClick={() => setDisplayMode('contain')}>Fit</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setDisplayMode('cover')}>Fill</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setDisplayMode('fill')}>Stretch</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  {/* Quality */}
-                  {qualityLevels.length > 1 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="text-white text-xs">
-                          {qualityLevels.find(q => q.id === currentQuality)?.label || 'Auto'}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {qualityLevels.map((level) => (
-                          <DropdownMenuItem
-                            key={level.id}
-                            onClick={() => handleQualityChange(level.id)}
-                            className={cn(currentQuality === level.id && "bg-primary/20")}
-                          >
-                            {level.label}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
+                {isFullscreen && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handlePrevChannel}
+                      disabled={channelIndex === 0}
+                      className="text-white hover:bg-white/20 disabled:opacity-30"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleNextChannel}
+                      disabled={channels.length === 0 || channelIndex === channels.length - 1}
+                      className="text-white hover:bg-white/20 disabled:opacity-30"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -546,39 +762,88 @@ const PlaylistWatch = () => {
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" onClick={togglePlay} className="text-white">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={togglePlay}
+                    className="text-white hover:bg-white/20"
+                  >
                     {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={toggleMute} className="text-white">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleMute}
+                    className="text-white hover:bg-white/20"
+                  >
                     {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                   </Button>
-                  <span className="text-red-500 text-xs font-semibold ml-2 bg-red-500/20 px-2 py-1 rounded">LIVE</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleRetry}
+                    disabled={isRefreshing}
+                    className="text-white hover:bg-white/20"
+                  >
+                    <RefreshCw className={cn("w-5 h-5", isRefreshing && "animate-spin")} />
+                  </Button>
                 </div>
+
                 <div className="flex items-center gap-2">
-                  {isFullscreen && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handlePrevChannel}
-                        disabled={channelIndex === 0}
-                        className="text-white"
-                      >
-                        <ChevronLeft className="w-5 h-5" />
+                  {/* Display Mode */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
+                        {displayMode === 'fit' && <RectangleHorizontal className="w-5 h-5" />}
+                        {displayMode === 'fill' && <Scan className="w-5 h-5" />}
+                        {displayMode === 'stretch' && <Move className="w-5 h-5" />}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleNextChannel}
-                        disabled={channelIndex === channels.length - 1}
-                        className="text-white"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </Button>
-                    </>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleDisplayModeChange('fit')}>
+                        <RectangleHorizontal className="w-4 h-4 mr-2" />
+                        Fit {displayMode === 'fit' && '✓'}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDisplayModeChange('fill')}>
+                        <Scan className="w-4 h-4 mr-2" />
+                        Fill {displayMode === 'fill' && '✓'}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleDisplayModeChange('stretch')}>
+                        <Move className="w-4 h-4 mr-2" />
+                        Stretch {displayMode === 'stretch' && '✓'}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Quality selector */}
+                  {qualityLevels.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-white hover:bg-white/20 gap-1">
+                          <Settings className="w-4 h-4" />
+                          {getCurrentQualityLabel()}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleAutoQuality}>
+                          Auto {currentQuality === -1 && '✓'}
+                        </DropdownMenuItem>
+                        {qualityLevels.map((q) => (
+                          <DropdownMenuItem key={q.id} onClick={() => handleQualityChange(q.id)}>
+                            {q.label} {currentQuality === q.id && '✓'}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
-                  <Button variant="ghost" size="icon" onClick={toggleFullscreen} className="text-white">
-                    {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleFullscreen}
+                    className="text-white hover:bg-white/20"
+                  >
+                    {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
                   </Button>
                 </div>
               </div>
@@ -586,26 +851,24 @@ const PlaylistWatch = () => {
           </div>
         </div>
 
-        {/* Channel list */}
-        {!isFullscreen && (
+        {/* Channel list below player (non-fullscreen only) */}
+        {!isFullscreen && channels.length > 0 && (
           <div className="mt-6 max-w-5xl mx-auto">
-            <h2 className="text-lg font-semibold text-foreground mb-4">Other Channels</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+            <h3 className="text-lg font-semibold mb-3">Channels</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
               {channels.map((ch, idx) => (
                 <button
-                  key={`${ch.url}-${idx}`}
-                  onClick={() => {
-                    setRetryCount(0);
-                    navigate(`/playlist/${slug}/watch?index=${idx}`);
-                  }}
+                  key={idx}
+                  onClick={() => navigate(`/playlist/${slug}/watch?index=${idx}`)}
                   className={cn(
-                    "p-2 rounded-lg text-xs text-left truncate transition-colors",
+                    "p-3 rounded-lg text-left transition-colors",
                     idx === channelIndex
                       ? "bg-primary text-primary-foreground"
-                      : "bg-card border border-border hover:border-primary"
+                      : "bg-card hover:bg-accent"
                   )}
                 >
-                  {ch.name}
+                  <p className="text-sm font-medium truncate">{ch.name}</p>
+                  {ch.group && <p className="text-xs text-muted-foreground truncate">{ch.group}</p>}
                 </button>
               ))}
             </div>
