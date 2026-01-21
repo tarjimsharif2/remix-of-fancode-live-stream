@@ -30,6 +30,26 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
+    // API Key verification
+    const API_KEY = Deno.env.get('STREAM_PROXY_API_KEY');
+    if (API_KEY) {
+      const url = new URL(req.url);
+      const keyFromQuery = url.searchParams.get('key');
+      const keyFromHeader = req.headers.get('x-api-key');
+      const providedKey = keyFromQuery || keyFromHeader;
+      
+      if (!providedKey || providedKey !== API_KEY) {
+        console.warn(`Unauthorized access attempt from ${req.headers.get('x-forwarded-for') || 'unknown'}`);
+        return new Response(JSON.stringify({ 
+          error: 'Unauthorized', 
+          code: 'UNAUTHORIZED',
+          details: 'Invalid or missing API key'
+        }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
     const url = new URL(req.url);
     const streamUrl = url.searchParams.get('url');
     const referer = url.searchParams.get('referer') || '';
@@ -257,8 +277,14 @@ serve(async (req) => {
       const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').replace(/^http:/, 'https:');
       const proxyBaseUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
       
-      // Build query params to forward
+      // Build query params to forward (including API key for segment requests)
       const forwardParams = new URLSearchParams();
+      const API_KEY = Deno.env.get('STREAM_PROXY_API_KEY');
+      if (API_KEY) {
+        const reqUrl = new URL(req.url);
+        const keyFromQuery = reqUrl.searchParams.get('key');
+        if (keyFromQuery) forwardParams.set('key', keyFromQuery);
+      }
       forwardParams.set('referer', referer);
       forwardParams.set('origin', origin);
       if (customUserAgent) forwardParams.set('user_agent', customUserAgent);
