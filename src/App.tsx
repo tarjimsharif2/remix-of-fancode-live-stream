@@ -9,6 +9,8 @@ import CricHd from "./pages/CricHd";
 import CricHdWatch from "./pages/CricHdWatch";
 import MyPlay from "./pages/MyPlay";
 import MyPlayWatch from "./pages/MyPlayWatch";
+import Playlist from "./pages/Playlist";
+import PlaylistWatch from "./pages/PlaylistWatch";
 import Admin from "./pages/Admin";
 import AdminAuth from "./pages/AdminAuth";
 import NotFound from "./pages/NotFound";
@@ -31,6 +33,8 @@ const App = () => (
             <Route path="/crichd/watch" element={<CricHdWatch />} />
             <Route path="/myplay" element={<MyPlay />} />
             <Route path="/myplay/watch" element={<MyPlayWatch />} />
+            <Route path="/playlist/:slug" element={<Playlist />} />
+            <Route path="/playlist/:slug/watch" element={<PlaylistWatch />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/login" element={<AdminAuth />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
