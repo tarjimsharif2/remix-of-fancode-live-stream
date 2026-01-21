@@ -1,13 +1,53 @@
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
-import { useM3uChannels } from "@/hooks/useM3uChannels";
-import { M3uChannel } from "@/types/m3uPlaylist";
-import { VideoPlayer } from "@/components/VideoPlayer";
+import { supabase } from "@/integrations/supabase/client";
+import { M3uPlaylist, M3uChannel } from "@/types/m3uPlaylist";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, ArrowLeft, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertCircle, ArrowLeft, RefreshCw, ChevronLeft, ChevronRight, Play, Pause, Volume2, VolumeX, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Hls from "hls.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+interface QualityLevel {
+  id: number;
+  height: number;
+  label: string;
+}
+
+function parseM3u(content: string): M3uChannel[] {
+  const lines = content.split('\n');
+  const channels: M3uChannel[] = [];
+  let currentChannel: Partial<M3uChannel> = {};
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    if (trimmedLine.startsWith('#EXTINF:')) {
+      const nameMatch = trimmedLine.match(/,(.+)$/);
+      const logoMatch = trimmedLine.match(/tvg-logo="([^"]+)"/);
+      const groupMatch = trimmedLine.match(/group-title="([^"]+)"/);
+      
+      currentChannel = {
+        name: nameMatch ? nameMatch[1].trim() : 'Unknown Channel',
+        logo: logoMatch ? logoMatch[1] : undefined,
+        group: groupMatch ? groupMatch[1] : undefined,
+      };
+    } else if (trimmedLine && !trimmedLine.startsWith('#') && currentChannel.name) {
+      currentChannel.url = trimmedLine;
+      channels.push(currentChannel as M3uChannel);
+      currentChannel = {};
+    }
+  }
+
+  return channels;
+}
 
 const PlaylistWatch = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -15,16 +55,65 @@ const PlaylistWatch = () => {
   const navigate = useNavigate();
   const channelIndex = parseInt(searchParams.get("index") || "0", 10);
 
-  const { playlist, channels, loading, error, refetch } = useM3uChannels(slug || null);
+  const [playlist, setPlaylist] = useState<M3uPlaylist | null>(null);
+  const [channels, setChannels] = useState<M3uChannel[]>([]);
   const [currentChannel, setCurrentChannel] = useState<M3uChannel | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const maxRetries = 3;
 
-  useEffect(() => {
-    if (channels.length > 0 && channelIndex >= 0 && channelIndex < channels.length) {
-      setCurrentChannel(channels[channelIndex]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [qualityLevels, setQualityLevels] = useState<QualityLevel[]>([]);
+  const [currentQuality, setCurrentQuality] = useState<number>(-1);
+  const [displayMode, setDisplayMode] = useState<'contain' | 'cover' | 'fill'>(() => {
+    const saved = localStorage.getItem('playlist-display-mode');
+    return (saved as 'contain' | 'cover' | 'fill') || 'contain';
+  });
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const controlsTimeoutRef = useRef<number | null>(null);
+
+  // Fetch fresh M3U content each time
+  const fetchFreshData = useCallback(async () => {
+    if (!slug) return null;
+
+    try {
+      // Get playlist metadata
+      const { data: playlistData, error: playlistError } = await supabase
+        .from('m3u_playlists')
+        .select('*')
+        .eq('slug', slug)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (playlistError) throw playlistError;
+      if (!playlistData) throw new Error('Playlist not found');
+
+      setPlaylist(playlistData as M3uPlaylist);
+
+      // Fetch fresh M3U content with cache-busting
+      const m3uUrl = new URL(playlistData.url);
+      m3uUrl.searchParams.set('_t', Date.now().toString());
+      
+      const response = await fetch(m3uUrl.toString());
+      if (!response.ok) throw new Error('Failed to fetch M3U playlist');
+
+      const content = await response.text();
+      const parsedChannels = parseM3u(content);
+      setChannels(parsedChannels);
+
+      return parsedChannels;
+    } catch (err) {
+      console.error('Error fetching M3U data:', err);
+      throw err;
     }
-  }, [channels, channelIndex]);
+  }, [slug]);
 
   const getProxyUrl = useCallback((url: string) => {
     if (!url) return '';
@@ -35,30 +124,246 @@ const PlaylistWatch = () => {
     return proxyUrl.toString();
   }, []);
 
-  const handleClose = () => {
-    navigate(`/playlist/${slug}`);
-  };
+  const initPlayer = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
 
-  const handleRetry = async () => {
+    // Cleanup previous instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Fetch fresh data each time
+      const freshChannels = await fetchFreshData();
+      if (!freshChannels || freshChannels.length === 0) {
+        throw new Error('No channels found');
+      }
+
+      const channel = freshChannels[channelIndex];
+      if (!channel) {
+        throw new Error('Channel not found');
+      }
+
+      setCurrentChannel(channel);
+
+      const streamUrl = getProxyUrl(channel.url);
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          manifestLoadingTimeOut: 20000,
+          manifestLoadingMaxRetry: 3,
+          levelLoadingTimeOut: 20000,
+          fragLoadingTimeOut: 25000,
+        });
+
+        hlsRef.current = hls;
+
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          setLoading(false);
+          
+          // Extract quality levels
+          const levels: QualityLevel[] = data.levels.map((level, index) => ({
+            id: index,
+            height: level.height || 0,
+            label: level.height ? `${level.height}p` : `Level ${index + 1}`,
+          }));
+          
+          levels.unshift({ id: -1, height: 0, label: 'Auto' });
+          setQualityLevels(levels);
+          setCurrentQuality(-1);
+
+          video.play().then(() => setIsPlaying(true)).catch(console.error);
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          console.error("HLS Error:", data);
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              // Auto-refresh on network/manifest errors
+              if (retryCount < maxRetries) {
+                console.log('Auto-refreshing stream...');
+                setRetryCount(prev => prev + 1);
+              } else {
+                setError("Stream unavailable. Please try again.");
+                setLoading(false);
+              }
+            } else {
+              setError("Failed to load stream.");
+              setLoading(false);
+            }
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = streamUrl;
+        video.addEventListener('loadedmetadata', () => {
+          setLoading(false);
+          video.play().then(() => setIsPlaying(true)).catch(console.error);
+        });
+        video.addEventListener('error', () => {
+          setError("Stream unavailable.");
+          setLoading(false);
+        });
+      } else {
+        setError("HLS streaming not supported");
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error('Error initializing player:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load stream');
+      setLoading(false);
+    }
+  }, [fetchFreshData, channelIndex, getProxyUrl, retryCount]);
+
+  useEffect(() => {
+    initPlayer();
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+      }
+    };
+  }, [channelIndex, retryCount]);
+
+  // Fullscreen handling
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFs = !!document.fullscreenElement;
+      setIsFullscreen(isFs);
+      
+      const orientation = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void>; unlock?: () => void };
+      if (isFs && orientation?.lock) {
+        orientation.lock('landscape').catch(() => {});
+      } else if (!isFs && orientation?.unlock) {
+        orientation.unlock();
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void };
+      if (orientation?.unlock) {
+        orientation.unlock();
+      }
+    };
+  }, []);
+
+  // Controls visibility
+  useEffect(() => {
+    const resetControlsTimeout = () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+      setShowControls(true);
+      controlsTimeoutRef.current = window.setTimeout(() => {
+        if (isPlaying) setShowControls(false);
+      }, 3000);
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('mousemove', resetControlsTimeout);
+      container.addEventListener('touchstart', resetControlsTimeout);
+    }
+
+    return () => {
+      if (container) {
+        container.removeEventListener('mousemove', resetControlsTimeout);
+        container.removeEventListener('touchstart', resetControlsTimeout);
+      }
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [isPlaying]);
+
+  // Save display mode
+  useEffect(() => {
+    localStorage.setItem('playlist-display-mode', displayMode);
+  }, [displayMode]);
+
+  const handleClose = () => navigate(`/playlist/${slug}`);
+  
+  const handleRetry = () => {
     if (retryCount < maxRetries) {
       setRetryCount(prev => prev + 1);
-      await refetch();
     }
   };
 
   const handlePrevChannel = () => {
     if (channelIndex > 0) {
+      setRetryCount(0);
       navigate(`/playlist/${slug}/watch?index=${channelIndex - 1}`);
     }
   };
 
   const handleNextChannel = () => {
     if (channelIndex < channels.length - 1) {
+      setRetryCount(0);
       navigate(`/playlist/${slug}/watch?index=${channelIndex + 1}`);
     }
   };
 
-  if (loading) {
+  const togglePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (video.paused) {
+      video.play();
+      setIsPlaying(true);
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const toggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.muted = !video.muted;
+    setIsMuted(video.muted);
+  };
+
+  const toggleFullscreen = () => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (!document.fullscreenElement) {
+      container.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  const handleQualityChange = (levelId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = levelId;
+      setCurrentQuality(levelId);
+    }
+  };
+
+  const getDisplayModeClass = () => {
+    switch (displayMode) {
+      case 'cover': return 'object-cover';
+      case 'fill': return 'object-fill';
+      default: return 'object-contain';
+    }
+  };
+
+  if (loading && !currentChannel) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         <Header />
@@ -73,14 +378,14 @@ const PlaylistWatch = () => {
     );
   }
 
-  if (error || !currentChannel) {
+  if (error && !currentChannel) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         <Header />
         <main className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <AlertCircle className="w-16 h-16 text-destructive" />
-            <p className="text-destructive">{error || 'Channel not found'}</p>
+            <p className="text-destructive">{error}</p>
             <div className="flex gap-2">
               <Button onClick={handleClose} variant="outline">
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -98,80 +403,216 @@ const PlaylistWatch = () => {
     );
   }
 
-  const streamUrl = getProxyUrl(currentChannel.url);
-
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Header />
-      <main className="flex-1 container mx-auto px-4 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClose}
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <div>
-              <h1 className="text-xl font-bold text-foreground">
-                {currentChannel.name}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {playlist?.name} • Channel {channelIndex + 1} of {channels.length}
-              </p>
+      {!isFullscreen && <Header />}
+      <main className={cn("flex-1", !isFullscreen && "container mx-auto px-4 py-4")}>
+        {!isFullscreen && (
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={handleClose}>
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+              <div>
+                <h1 className="text-xl font-bold text-foreground">
+                  {currentChannel?.name || 'Loading...'}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {playlist?.name} • Channel {channelIndex + 1} of {channels.length}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handlePrevChannel}
+                disabled={channelIndex === 0}
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleNextChannel}
+                disabled={channelIndex === channels.length - 1}
+              >
+                <ChevronRight className="w-5 h-5" />
+              </Button>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handlePrevChannel}
-              disabled={channelIndex === 0}
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleNextChannel}
-              disabled={channelIndex === channels.length - 1}
-            >
-              <ChevronRight className="w-5 h-5" />
-            </Button>
-          </div>
-        </div>
+        )}
 
-        <div className="aspect-video w-full max-w-5xl mx-auto">
-          <VideoPlayer
-            streamUrl={streamUrl}
-            matchName={currentChannel.name}
-            onClose={handleClose}
+        <div
+          ref={containerRef}
+          className={cn(
+            "relative bg-black overflow-hidden",
+            isFullscreen ? "fixed inset-0 z-50" : "aspect-video w-full max-w-5xl mx-auto rounded-lg"
+          )}
+        >
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-white/80">Connecting to stream...</p>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-20">
+              <div className="flex flex-col items-center gap-4 text-center p-6">
+                <AlertCircle className="w-12 h-12 text-destructive" />
+                <p className="text-white">{error}</p>
+                <div className="flex gap-2">
+                  <Button onClick={handleRetry} variant="outline" disabled={retryCount >= maxRetries}>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Retry ({maxRetries - retryCount} left)
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <video
+            ref={videoRef}
+            className={cn("w-full h-full bg-black", getDisplayModeClass())}
+            playsInline
+            onClick={togglePlay}
           />
-        </div>
 
-        {/* Channel list sidebar */}
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Other Channels</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-            {channels.map((ch, idx) => (
-              <button
-                key={`${ch.url}-${idx}`}
-                onClick={() => navigate(`/playlist/${slug}/watch?index=${idx}`)}
-                className={cn(
-                  "p-2 rounded-lg text-xs text-left truncate transition-colors",
-                  idx === channelIndex
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card border border-border hover:border-primary"
-                )}
-              >
-                {ch.name}
-              </button>
-            ))}
+          {/* Controls overlay */}
+          <div
+            className={cn(
+              "absolute inset-0 transition-opacity duration-300 z-10",
+              showControls ? "opacity-100" : "opacity-0 pointer-events-none"
+            )}
+          >
+            {/* Top bar */}
+            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {isFullscreen && (
+                    <Button variant="ghost" size="icon" onClick={handleClose} className="text-white">
+                      <ArrowLeft className="w-5 h-5" />
+                    </Button>
+                  )}
+                  <div>
+                    <h2 className="text-white font-bold text-lg">{currentChannel?.name}</h2>
+                    <p className="text-white/60 text-sm">{playlist?.name}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {/* Display mode */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-white text-xs">
+                        {displayMode === 'contain' ? 'Fit' : displayMode === 'cover' ? 'Fill' : 'Stretch'}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => setDisplayMode('contain')}>Fit</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setDisplayMode('cover')}>Fill</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setDisplayMode('fill')}>Stretch</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  {/* Quality */}
+                  {qualityLevels.length > 1 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-white text-xs">
+                          {qualityLevels.find(q => q.id === currentQuality)?.label || 'Auto'}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {qualityLevels.map((level) => (
+                          <DropdownMenuItem
+                            key={level.id}
+                            onClick={() => handleQualityChange(level.id)}
+                            className={cn(currentQuality === level.id && "bg-primary/20")}
+                          >
+                            {level.label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom bar */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" onClick={togglePlay} className="text-white">
+                    {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={toggleMute} className="text-white">
+                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                  </Button>
+                  <span className="text-red-500 text-xs font-semibold ml-2 bg-red-500/20 px-2 py-1 rounded">LIVE</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isFullscreen && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handlePrevChannel}
+                        disabled={channelIndex === 0}
+                        className="text-white"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleNextChannel}
+                        disabled={channelIndex === channels.length - 1}
+                        className="text-white"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </Button>
+                    </>
+                  )}
+                  <Button variant="ghost" size="icon" onClick={toggleFullscreen} className="text-white">
+                    {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Channel list */}
+        {!isFullscreen && (
+          <div className="mt-6 max-w-5xl mx-auto">
+            <h2 className="text-lg font-semibold text-foreground mb-4">Other Channels</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+              {channels.map((ch, idx) => (
+                <button
+                  key={`${ch.url}-${idx}`}
+                  onClick={() => {
+                    setRetryCount(0);
+                    navigate(`/playlist/${slug}/watch?index=${idx}`);
+                  }}
+                  className={cn(
+                    "p-2 rounded-lg text-xs text-left truncate transition-colors",
+                    idx === channelIndex
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card border border-border hover:border-primary"
+                  )}
+                >
+                  {ch.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
-      <Footer />
+      {!isFullscreen && <Footer />}
     </div>
   );
 };
