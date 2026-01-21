@@ -13,24 +13,38 @@ export const useMatches = () => {
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke<FancodeResponse>('fetch-matches');
+      // Guard against requests that can hang (network/proxy issues)
+      const timeoutMs = 12000;
+      const result = await Promise.race([
+        supabase.functions.invoke<FancodeResponse>('fetch-matches'),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout. Please try again.')), timeoutMs)
+        ),
+      ]);
+
+      const { data, error: fnError } = result;
 
       if (fnError) {
         throw new Error(fnError.message);
       }
 
-      if (data?.success && data.matches) {
-        const formattedMatches: Match[] = data.matches.map((m, index) => {
+      // Some deployments return { matches, lastUpdated } without a `success` flag.
+      const matchesArr = (data as any)?.matches;
+      const lastUpdatedVal = (data as any)?.lastUpdated;
+
+      if (Array.isArray(matchesArr)) {
+        const formattedMatches: Match[] = matchesArr.map((m: any, index: number) => {
           const inLink = m.adfree_url || m.dai_url;
           // Generate BD link by replacing 'in-mc' with 'bd-mc' in the URL
           const bdLink = inLink ? inLink.replace('in-mc-fdlive', 'bd-mc-fdlive') : undefined;
+          const startTime = m.startTime || m.start_time;
           
           return {
             id: m.match_id?.toString() || `match-${index}`,
             team1: m.team_1,
             team2: m.team_2,
             event: m.event_name,
-            startTime: m.startTime || "Live Now",
+            startTime: startTime || "Live Now",
             status: m.status?.toUpperCase() === 'LIVE' ? 'live' as const : 'upcoming' as const,
             thumbnail: m.src,
             streamLinkIN: inLink,
@@ -42,9 +56,9 @@ export const useMatches = () => {
         });
 
         setMatches(formattedMatches);
-        setLastUpdated(data.lastUpdated);
+        setLastUpdated(typeof lastUpdatedVal === 'string' ? lastUpdatedVal : null);
       } else {
-        setError(data?.error || "Failed to fetch matches");
+        setError((data as any)?.error || "Failed to fetch matches");
       }
     } catch (err) {
       console.error("Error fetching matches:", err);
