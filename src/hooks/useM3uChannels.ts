@@ -66,15 +66,24 @@ export function useM3uChannels(slug: string | null) {
 
       setPlaylist(playlistData as M3uPlaylist);
 
-      // Fetch M3U content
-      const response = await fetch(playlistData.url);
-      if (!response.ok) {
-        throw new Error('Failed to fetch M3U playlist');
+      // Fetch channels through backend function to avoid CORS and always get fresh tokens
+      const { data, error: fnError } = await supabase.functions.invoke<{
+        playlist: M3uPlaylist;
+        channels: M3uChannel[];
+      }>('fetch-m3u-playlist', {
+        body: { slug, cacheBust: Date.now() },
+      });
+
+      if (fnError) {
+        throw new Error(fnError.message);
       }
 
-      const content = await response.text();
-      const parsedChannels = parseM3u(content);
-      setChannels(parsedChannels);
+      if (!data?.playlist) {
+        throw new Error('Playlist not found');
+      }
+
+      setPlaylist(data.playlist);
+      setChannels(Array.isArray(data.channels) ? data.channels : []);
     } catch (err) {
       console.error('Error fetching M3U channels:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch channels');

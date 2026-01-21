@@ -1,7 +1,5 @@
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import { M3uPlaylist, M3uChannel } from "@/types/m3uPlaylist";
 import { Button } from "@/components/ui/button";
@@ -98,37 +96,24 @@ const PlaylistWatch = () => {
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
   });
 
-  // Fetch fresh M3U content each time
+  // Fetch fresh M3U content each time (via backend to avoid CORS + ensure freshness)
   const fetchFreshData = useCallback(async (): Promise<M3uChannel[] | null> => {
     if (!slug) return null;
 
     try {
-      // Get playlist metadata
-      const { data: playlistData, error: playlistError } = await supabase
-        .from('m3u_playlists')
-        .select('*')
-        .eq('slug', slug)
-        .eq('is_active', true)
-        .maybeSingle();
+      const { data, error: fnError } = await supabase.functions.invoke<{
+        playlist: M3uPlaylist;
+        channels: M3uChannel[];
+      }>('fetch-m3u-playlist', {
+        body: { slug, cacheBust: Date.now() },
+      });
 
-      if (playlistError) throw playlistError;
-      if (!playlistData) throw new Error('Playlist not found');
+      if (fnError) throw new Error(fnError.message);
+      if (!data?.playlist) throw new Error('Playlist not found');
 
-      setPlaylist(playlistData as M3uPlaylist);
-
-      // Fetch fresh M3U content with cache-busting
-      const m3uUrl = new URL(playlistData.url);
-      m3uUrl.searchParams.set('_t', Date.now().toString());
-      
-      console.log('Fetching M3U from:', m3uUrl.toString());
-      const response = await fetch(m3uUrl.toString());
-      if (!response.ok) throw new Error('Failed to fetch M3U playlist');
-
-      const content = await response.text();
-      const parsedChannels = parseM3u(content);
-      console.log('Parsed channels:', parsedChannels.length);
+      setPlaylist(data.playlist);
+      const parsedChannels = Array.isArray(data.channels) ? data.channels : [];
       setChannels(parsedChannels);
-
       return parsedChannels;
     } catch (err) {
       console.error('Error fetching M3U data:', err);
@@ -595,15 +580,11 @@ const PlaylistWatch = () => {
   // Loading state (no current channel yet)
   if (loading && !currentChannel) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <Header />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-muted-foreground">Loading channel...</p>
-          </div>
-        </main>
-        <Footer />
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-white/80">Loading channel...</p>
+        </div>
       </div>
     );
   }
@@ -611,76 +592,35 @@ const PlaylistWatch = () => {
   // Error state (no current channel)
   if (error && !currentChannel) {
     return (
-      <div className="min-h-screen flex flex-col bg-background">
-        <Header />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <AlertCircle className="w-16 h-16 text-destructive" />
-            <p className="text-destructive">{error}</p>
-            <div className="flex gap-2">
-              <Button onClick={handleClose} variant="outline">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Playlist
-              </Button>
-              <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
-                <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
-                Retry
-              </Button>
-            </div>
+      <div className="min-h-screen bg-black flex items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <AlertCircle className="w-16 h-16 text-destructive" />
+          <p className="text-white">{error}</p>
+          <div className="flex gap-2">
+            <Button onClick={handleClose} variant="outline">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+            <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
+              <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
+              Retry
+            </Button>
           </div>
-        </main>
-        <Footer />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      {!isFullscreen && <Header />}
-      <main className={cn("flex-1", !isFullscreen && "container mx-auto px-4 py-4")}>
-        {!isFullscreen && (
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={handleClose}>
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-              <div>
-                <h1 className="text-xl font-bold text-foreground">
-                  {currentChannel?.name || 'Loading...'}
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  {playlist?.name} • Channel {channelIndex + 1} of {channels.length || '...'}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handlePrevChannel}
-                disabled={channelIndex === 0}
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleNextChannel}
-                disabled={channels.length === 0 || channelIndex === channels.length - 1}
-              >
-                <ChevronRight className="w-5 h-5" />
-              </Button>
-            </div>
-          </div>
+    <div className="min-h-screen bg-black">
+      <div
+        ref={containerRef}
+        className={cn(
+          "relative bg-black overflow-hidden",
+          // Always full-page like MyPlay (mobile-first)
+          "h-[100svh] w-full"
         )}
-
-        <div
-          ref={containerRef}
-          className={cn(
-            "relative bg-black overflow-hidden",
-            isFullscreen ? "fixed inset-0 z-50" : "aspect-video w-full max-w-5xl mx-auto rounded-lg"
-          )}
-        >
+      >
           {/* Loading overlay */}
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20">
@@ -723,38 +663,34 @@ const PlaylistWatch = () => {
             <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  {isFullscreen && (
-                    <Button variant="ghost" size="icon" onClick={handleClose} className="text-white hover:bg-white/20">
-                      <ArrowLeft className="w-5 h-5" />
-                    </Button>
-                  )}
+                  <Button variant="ghost" size="icon" onClick={handleClose} className="text-white hover:bg-white/20">
+                    <ArrowLeft className="w-5 h-5" />
+                  </Button>
                   <div>
                     <h2 className="text-white font-semibold">{currentChannel?.name}</h2>
                     <p className="text-white/60 text-sm">{playlist?.name}</p>
                   </div>
                 </div>
-                {isFullscreen && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={handlePrevChannel}
-                      disabled={channelIndex === 0}
-                      className="text-white hover:bg-white/20 disabled:opacity-30"
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={handleNextChannel}
-                      disabled={channels.length === 0 || channelIndex === channels.length - 1}
-                      className="text-white hover:bg-white/20 disabled:opacity-30"
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </Button>
-                  </div>
-                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handlePrevChannel}
+                    disabled={channelIndex === 0}
+                    className="text-white hover:bg-white/20 disabled:opacity-30"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleNextChannel}
+                    disabled={channels.length === 0 || channelIndex === channels.length - 1}
+                    className="text-white hover:bg-white/20 disabled:opacity-30"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -849,33 +785,7 @@ const PlaylistWatch = () => {
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Channel list below player (non-fullscreen only) */}
-        {!isFullscreen && channels.length > 0 && (
-          <div className="mt-6 max-w-5xl mx-auto">
-            <h3 className="text-lg font-semibold mb-3">Channels</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {channels.map((ch, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => navigate(`/playlist/${slug}/watch?index=${idx}`)}
-                  className={cn(
-                    "p-3 rounded-lg text-left transition-colors",
-                    idx === channelIndex
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card hover:bg-accent"
-                  )}
-                >
-                  <p className="text-sm font-medium truncate">{ch.name}</p>
-                  {ch.group && <p className="text-xs text-muted-foreground truncate">{ch.group}</p>}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
-      {!isFullscreen && <Footer />}
+      </div>
     </div>
   );
 };
