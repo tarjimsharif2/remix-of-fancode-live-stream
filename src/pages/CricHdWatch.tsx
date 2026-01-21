@@ -55,6 +55,7 @@ const CricHdWatch = () => {
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [proxyApiKey, setProxyApiKey] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
@@ -92,6 +93,21 @@ const CricHdWatch = () => {
       return null;
     }
   }, [channelId]);
+
+  // Fetch proxy API key from app_settings
+  useEffect(() => {
+    const fetchProxyKey = async () => {
+      const { data } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'stream_proxy_key')
+        .maybeSingle();
+      if (data?.value) {
+        setProxyApiKey(data.value);
+      }
+    };
+    fetchProxyKey();
+  }, []);
 
   // Initial channel load
   useEffect(() => {
@@ -133,10 +149,16 @@ const CricHdWatch = () => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
+    
+    // Add API key for authorization
+    if (proxyApiKey) {
+      proxyUrl.searchParams.set('key', proxyApiKey);
+    }
+    
     if (channel.referer) proxyUrl.searchParams.set('referer', channel.referer);
     if (channel.origin) proxyUrl.searchParams.set('origin', channel.origin);
     return proxyUrl.toString();
-  }, [channel]);
+  }, [channel, proxyApiKey]);
 
   // Auto-refresh channel and retry stream on 403 errors
   const refreshAndRetry = useCallback(async () => {
