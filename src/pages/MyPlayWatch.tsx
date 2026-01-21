@@ -57,7 +57,6 @@ const MyPlayWatch = () => {
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
-  const [proxyApiKey, setProxyApiKey] = useState<string | null>(null);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
@@ -94,22 +93,6 @@ const MyPlayWatch = () => {
       return null;
     }
   }, [channelId]);
-
-  // Fetch proxy API key from app_settings
-  useEffect(() => {
-    const fetchProxyKey = async () => {
-      const { data } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'stream_proxy_key')
-        .maybeSingle();
-      if (data?.value) {
-        setProxyApiKey(data.value);
-      }
-    };
-    fetchProxyKey();
-  }, []);
-
   // Initial channel load
   useEffect(() => {
     const loadChannel = async () => {
@@ -153,11 +136,6 @@ const MyPlayWatch = () => {
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
 
-    // Add API key for authorization
-    if (proxyApiKey) {
-      proxyUrl.searchParams.set('key', proxyApiKey);
-    }
-
     // Add custom headers
     if (channel.custom_referer) proxyUrl.searchParams.set('referer', channel.custom_referer);
     if (channel.custom_origin) proxyUrl.searchParams.set('origin', channel.custom_origin);
@@ -170,7 +148,7 @@ const MyPlayWatch = () => {
     }
 
     return proxyUrl.toString();
-  }, [channel, proxyApiKey]);
+  }, [channel]);
 
   // Check if URL is HTTP (non-secure) - must always use proxy for mixed content
   const isHttpUrl = useCallback((url: string) => {

@@ -30,26 +30,50 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    // API Key verification
-    const API_KEY = Deno.env.get('STREAM_PROXY_API_KEY');
-    if (API_KEY) {
-      const url = new URL(req.url);
-      const keyFromQuery = url.searchParams.get('key');
-      const keyFromHeader = req.headers.get('x-api-key');
-      const providedKey = keyFromQuery || keyFromHeader;
-      
-      if (!providedKey || providedKey !== API_KEY) {
-        console.warn(`Unauthorized access attempt from ${req.headers.get('x-forwarded-for') || 'unknown'}`);
-        return new Response(JSON.stringify({ 
-          error: 'Unauthorized', 
-          code: 'UNAUTHORIZED',
-          details: 'Invalid or missing API key'
-        }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+    // Origin/Referer verification - block direct browser access
+    const requestOrigin = req.headers.get('origin') || '';
+    const requestReferer = req.headers.get('referer') || '';
+    
+    // List of allowed origins/patterns (our app domains)
+    const allowedPatterns = [
+      'lovable.app',
+      'lovableproject.com',
+      'lovable.dev',
+      'eplayhd',
+      'cricfoots',
+      'localhost',
+      '127.0.0.1'
+    ];
+    
+    const isAllowedOrigin = allowedPatterns.some(pattern => 
+      requestOrigin.includes(pattern) || requestReferer.includes(pattern)
+    );
+    
+    // If no origin/referer (direct browser access) or not from allowed origin, block
+    if (!requestOrigin && !requestReferer) {
+      console.warn(`Direct access attempt blocked from ${req.headers.get('x-forwarded-for') || 'unknown'}`);
+      return new Response(JSON.stringify({ 
+        error: 'Forbidden', 
+        code: 'DIRECT_ACCESS_BLOCKED',
+        details: 'Direct browser access is not allowed. Use the app to access streams.'
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
+    
+    if (!isAllowedOrigin) {
+      console.warn(`Unauthorized origin: ${requestOrigin || requestReferer}`);
+      return new Response(JSON.stringify({ 
+        error: 'Forbidden', 
+        code: 'UNAUTHORIZED_ORIGIN',
+        details: 'Access from this origin is not allowed'
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const url = new URL(req.url);
     const streamUrl = url.searchParams.get('url');
     const referer = url.searchParams.get('referer') || '';
@@ -277,14 +301,8 @@ serve(async (req) => {
       const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').replace(/^http:/, 'https:');
       const proxyBaseUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
       
-      // Build query params to forward (including API key for segment requests)
+      // Build query params to forward
       const forwardParams = new URLSearchParams();
-      const API_KEY = Deno.env.get('STREAM_PROXY_API_KEY');
-      if (API_KEY) {
-        const reqUrl = new URL(req.url);
-        const keyFromQuery = reqUrl.searchParams.get('key');
-        if (keyFromQuery) forwardParams.set('key', keyFromQuery);
-      }
       forwardParams.set('referer', referer);
       forwardParams.set('origin', origin);
       if (customUserAgent) forwardParams.set('user_agent', customUserAgent);
