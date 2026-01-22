@@ -8,7 +8,7 @@ interface MatchGridProps {
   loading: boolean;
   error: string | null;
   lastUpdated: string | null;
-  onWatch: (match: Match, region: 'BD' | 'IN') => void;
+  onWatch: (match: Match, region: 'BD' | 'IN' | 'WW') => void;
   onRefresh: () => void;
 }
 
