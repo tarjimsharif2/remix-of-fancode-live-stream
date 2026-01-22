@@ -230,8 +230,11 @@ const WatchWorldwide = () => {
       return;
     }
 
+    // Clean up previous player
     if (playerRef.current) {
-      playerRef.current.destroy();
+      if (typeof playerRef.current.destroy === 'function') {
+        playerRef.current.destroy();
+      }
       playerRef.current = null;
     }
 
@@ -242,135 +245,54 @@ const WatchWorldwide = () => {
     stopAutoRetry();
 
     try {
-      const Clappr = await import('@clappr/player');
-      const HlsjsPlayback = await import('@clappr/hlsjs-playback');
-
       if (playerContainerRef.current) {
         playerContainerRef.current.innerHTML = '';
       }
 
-      setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
+      setIsPiPSupported(false); // PiP not supported for iframe
 
-      const player = new Clappr.default.Player({
-        parent: playerContainerRef.current,
-        source: streamUrl,
-        plugins: [HlsjsPlayback.default],
-        playback: {
-          hlsjsConfig: {
-            enableWorker: true,
-            lowLatencyMode: true,
-            maxBufferLength: 12,
-            maxMaxBufferLength: 30,
-            maxBufferSize: 30 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            startLevel: -1,
-            abrEwmaDefaultEstimate: 4000000,
-            abrBandWidthFactor: 0.95,
-            abrBandWidthUpFactor: 0.7,
-            fragLoadingTimeOut: 7000,
-            fragLoadingMaxRetry: 3,
-            fragLoadingRetryDelay: 400,
-            liveSyncDurationCount: 2,
-            liveMaxLatencyDurationCount: 4,
-          }
-        },
-        hlsPlayback: {
-          preload: true,
-        },
-        autoPlay: true,
-        mute: false,
-        disableVideoTagContextMenu: true,
-        disableKeyboardShortcuts: true,
-        chromeless: false,
-        allowUserInteraction: false,
-        clickToPause: false,
-        height: '100%',
-        width: '100%',
-        mediacontrol: {
-          seekbar: '#10b981',
-          buttons: '#ffffff'
-        },
-        events: {
-          onError: (e: any) => {
-            console.error('Clappr error:', e);
-            setError('The match has not started yet or the stream is unavailable.');
-            setIsLoading(false);
-            startAutoRetry();
-          },
-          onPlay: () => {
-            setIsLoading(false);
-            setRetryCount(0);
-            stopAutoRetry();
-          },
-          onReady: () => {
-            setIsLoading(false);
-            
-            const extractQualities = () => {
-              try {
-                const playback = player.core?.getCurrentPlayback?.();
-                const levels = (playback as any)?.levels;
-                if (Array.isArray(levels) && levels.length > 0) {
-                  const qualityList: QualityLevel[] = levels
-                    .map((lvl: any) => ({
-                      id: typeof lvl?.id === 'number' ? lvl.id : lvl?.levelId,
-                      height: lvl?.level?.height || lvl?.height || 0,
-                      label: lvl?.label || (lvl?.level?.height ? `${lvl.level.height}p` : (lvl?.height ? `${lvl.height}p` : 'Auto')),
-                    }))
-                    .filter((q: QualityLevel) => typeof q.id === 'number' && q.height > 0)
-                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
-
-                  if (qualityList.length > 0) {
-                    setQualities(qualityList);
-                    return true;
-                  }
-                }
-
-                const hls = (playback as any)?._hls || (playback as any)?.hls;
-                if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
-                  const qualityList: QualityLevel[] = hls.levels
-                    .map((lvl: any, index: number) => ({
-                      id: index,
-                      height: lvl.height || 0,
-                      label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
-                    }))
-                    .filter((q: QualityLevel) => q.height > 0)
-                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
-
-                  if (qualityList.length > 0) {
-                    setQualities(qualityList);
-                    return true;
-                  }
-                }
-              } catch (err) {
-                console.log('Could not extract qualities:', err);
-              }
-              return false;
-            };
-
-            const tryExtract = (attempts: number) => {
-              if (attempts <= 0) return;
-              if (!extractQualities()) {
-                setTimeout(() => tryExtract(attempts - 1), 800);
-              }
-            };
-            tryExtract(8);
-
-            const videoElement = player.core?.getCurrentPlayback?.()?.el;
-            if (videoElement) {
-              videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
-              videoElement.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
-            }
-          }
-        }
-      });
-
-      playerRef.current = player;
-
-      player.on(Clappr.default.Events.PLAYER_ERROR, () => {
+      // The worldwide proxy returns a video stream through PHP - embed as iframe
+      const iframe = document.createElement('iframe');
+      iframe.src = streamUrl;
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      iframe.style.backgroundColor = 'black';
+      iframe.allow = 'autoplay; fullscreen; encrypted-media';
+      iframe.allowFullscreen = true;
+      
+      iframe.onload = () => {
+        setIsLoading(false);
+        setRetryCount(0);
+        stopAutoRetry();
+      };
+      
+      iframe.onerror = () => {
+        console.error('Iframe load error');
         setError('The match has not started yet or the stream is unavailable.');
         setIsLoading(false);
         startAutoRetry();
-      });
+      };
+      
+      // Timeout fallback if iframe doesn't trigger load
+      const loadTimeout = setTimeout(() => {
+        if (isLoading) {
+          setIsLoading(false);
+        }
+      }, 5000);
+      
+      playerContainerRef.current?.appendChild(iframe);
+      playerRef.current = { 
+        el: iframe, 
+        destroy: () => {
+          clearTimeout(loadTimeout);
+          iframe.src = '';
+          iframe.remove();
+        },
+        core: {
+          getCurrentPlayback: () => ({ el: null })
+        }
+      };
 
     } catch (err) {
       console.error('Failed to initialize player:', err);
@@ -378,7 +300,7 @@ const WatchWorldwide = () => {
       setIsLoading(false);
       startAutoRetry();
     }
-  }, [streamUrl, stopAutoRetry, startAutoRetry]);
+  }, [streamUrl, stopAutoRetry, startAutoRetry, isLoading]);
 
   useEffect(() => {
     if (streamUrl && !isFetchingStream) {
