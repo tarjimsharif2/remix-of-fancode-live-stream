@@ -242,56 +242,135 @@ const WatchWorldwide = () => {
     stopAutoRetry();
 
     try {
+      const Clappr = await import('@clappr/player');
+      const HlsjsPlayback = await import('@clappr/hlsjs-playback');
+
       if (playerContainerRef.current) {
         playerContainerRef.current.innerHTML = '';
       }
 
       setIsPiPSupported('pictureInPictureEnabled' in document && (document as any).pictureInPictureEnabled);
 
-      // The worldwide proxy returns a direct video stream, use native video element
-      const videoEl = document.createElement('video');
-      videoEl.src = streamUrl;
-      videoEl.autoplay = true;
-      videoEl.playsInline = true;
-      videoEl.controls = true;
-      videoEl.style.width = '100%';
-      videoEl.style.height = '100%';
-      videoEl.style.backgroundColor = 'black';
-      
-      videoEl.onloadeddata = () => {
-        setIsLoading(false);
-        setRetryCount(0);
-        stopAutoRetry();
-      };
-      
-      videoEl.onplay = () => {
-        setIsLoading(false);
-        setRetryCount(0);
-        stopAutoRetry();
-      };
-      
-      videoEl.onerror = () => {
-        console.error('Video error:', videoEl.error);
+      const player = new Clappr.default.Player({
+        parent: playerContainerRef.current,
+        source: streamUrl,
+        plugins: [HlsjsPlayback.default],
+        playback: {
+          hlsjsConfig: {
+            enableWorker: true,
+            lowLatencyMode: true,
+            maxBufferLength: 12,
+            maxMaxBufferLength: 30,
+            maxBufferSize: 30 * 1000 * 1000,
+            maxBufferHole: 0.5,
+            startLevel: -1,
+            abrEwmaDefaultEstimate: 4000000,
+            abrBandWidthFactor: 0.95,
+            abrBandWidthUpFactor: 0.7,
+            fragLoadingTimeOut: 7000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 400,
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 4,
+          }
+        },
+        hlsPlayback: {
+          preload: true,
+        },
+        autoPlay: true,
+        mute: false,
+        disableVideoTagContextMenu: true,
+        disableKeyboardShortcuts: true,
+        chromeless: false,
+        allowUserInteraction: false,
+        clickToPause: false,
+        height: '100%',
+        width: '100%',
+        mediacontrol: {
+          seekbar: '#10b981',
+          buttons: '#ffffff'
+        },
+        events: {
+          onError: (e: any) => {
+            console.error('Clappr error:', e);
+            setError('The match has not started yet or the stream is unavailable.');
+            setIsLoading(false);
+            startAutoRetry();
+          },
+          onPlay: () => {
+            setIsLoading(false);
+            setRetryCount(0);
+            stopAutoRetry();
+          },
+          onReady: () => {
+            setIsLoading(false);
+            
+            const extractQualities = () => {
+              try {
+                const playback = player.core?.getCurrentPlayback?.();
+                const levels = (playback as any)?.levels;
+                if (Array.isArray(levels) && levels.length > 0) {
+                  const qualityList: QualityLevel[] = levels
+                    .map((lvl: any) => ({
+                      id: typeof lvl?.id === 'number' ? lvl.id : lvl?.levelId,
+                      height: lvl?.level?.height || lvl?.height || 0,
+                      label: lvl?.label || (lvl?.level?.height ? `${lvl.level.height}p` : (lvl?.height ? `${lvl.height}p` : 'Auto')),
+                    }))
+                    .filter((q: QualityLevel) => typeof q.id === 'number' && q.height > 0)
+                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
+
+                  if (qualityList.length > 0) {
+                    setQualities(qualityList);
+                    return true;
+                  }
+                }
+
+                const hls = (playback as any)?._hls || (playback as any)?.hls;
+                if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
+                  const qualityList: QualityLevel[] = hls.levels
+                    .map((lvl: any, index: number) => ({
+                      id: index,
+                      height: lvl.height || 0,
+                      label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
+                    }))
+                    .filter((q: QualityLevel) => q.height > 0)
+                    .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
+
+                  if (qualityList.length > 0) {
+                    setQualities(qualityList);
+                    return true;
+                  }
+                }
+              } catch (err) {
+                console.log('Could not extract qualities:', err);
+              }
+              return false;
+            };
+
+            const tryExtract = (attempts: number) => {
+              if (attempts <= 0) return;
+              if (!extractQualities()) {
+                setTimeout(() => tryExtract(attempts - 1), 800);
+              }
+            };
+            tryExtract(8);
+
+            const videoElement = player.core?.getCurrentPlayback?.()?.el;
+            if (videoElement) {
+              videoElement.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
+              videoElement.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
+            }
+          }
+        }
+      });
+
+      playerRef.current = player;
+
+      player.on(Clappr.default.Events.PLAYER_ERROR, () => {
         setError('The match has not started yet or the stream is unavailable.');
         setIsLoading(false);
         startAutoRetry();
-      };
-      
-      videoEl.addEventListener('enterpictureinpicture', () => setIsPiPActive(true));
-      videoEl.addEventListener('leavepictureinpicture', () => setIsPiPActive(false));
-      
-      playerContainerRef.current?.appendChild(videoEl);
-      playerRef.current = { 
-        el: videoEl, 
-        destroy: () => {
-          videoEl.pause();
-          videoEl.src = '';
-          videoEl.remove();
-        },
-        core: {
-          getCurrentPlayback: () => ({ el: videoEl })
-        }
-      };
+      });
 
     } catch (err) {
       console.error('Failed to initialize player:', err);
