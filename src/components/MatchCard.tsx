@@ -6,7 +6,7 @@ import { Play } from "lucide-react";
 interface MatchCardProps {
   match: Match;
   index: number;
-  onWatch: (match: Match, region: 'BD' | 'IN') => void;
+  onWatch: (match: Match, region: 'BD' | 'IN' | 'WW') => void;
 }
 
 export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
@@ -57,26 +57,38 @@ export const MatchCard = ({ match, index, onWatch }: MatchCardProps) => {
           </p>
         </div>
 
-        <div className="flex gap-3 pt-2">
+        <div className="flex flex-col gap-2 pt-2">
+          <div className="flex gap-3">
+            <Button
+              variant="watch"
+              size="watch"
+              className="flex-1"
+              onClick={() => onWatch(match, 'BD')}
+              disabled={!match.matchId}
+            >
+              <Play className="w-4 h-4" />
+              Watch BD
+            </Button>
+            <Button
+              variant="watch"
+              size="watch"
+              className="flex-1"
+              onClick={() => onWatch(match, 'IN')}
+              disabled={!match.matchId}
+            >
+              <Play className="w-4 h-4" />
+              Watch IN
+            </Button>
+          </div>
           <Button
-            variant="watch"
+            variant="outline"
             size="watch"
-            className="flex-1"
-            onClick={() => onWatch(match, 'BD')}
+            className="w-full border-primary/50 text-primary hover:bg-primary/10"
+            onClick={() => onWatch(match, 'WW')}
             disabled={!match.matchId}
           >
             <Play className="w-4 h-4" />
-            Watch BD
-          </Button>
-          <Button
-            variant="watch"
-            size="watch"
-            className="flex-1"
-            onClick={() => onWatch(match, 'IN')}
-            disabled={!match.matchId}
-          >
-            <Play className="w-4 h-4" />
-            Watch IN
+            Watch Worldwide
           </Button>
         </div>
       </div>

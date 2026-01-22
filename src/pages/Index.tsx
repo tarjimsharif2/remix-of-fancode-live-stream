@@ -9,10 +9,14 @@ const Index = () => {
   const { matches, loading, error, lastUpdated, refetch } = useMatches();
   const navigate = useNavigate();
 
-  const handleWatch = (match: Match, region: 'BD' | 'IN') => {
+  const handleWatch = (match: Match, region: 'BD' | 'IN' | 'WW') => {
     if (match.matchId) {
-      const path = region === 'BD' ? '/fancode/play-bd.php' : '/fancode/play-in.php';
-      navigate(`${path}?id=${match.matchId}`);
+      if (region === 'WW') {
+        navigate(`/fancode/play-ww.php?id=${match.matchId}`);
+      } else {
+        const path = region === 'BD' ? '/fancode/play-bd.php' : '/fancode/play-in.php';
+        navigate(`${path}?id=${match.matchId}`);
+      }
     }
   };
 

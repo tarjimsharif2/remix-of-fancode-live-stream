@@ -86,6 +86,12 @@ const Admin = () => {
   const [crichdDataSourceUrl, setCrichdDataSourceUrl] = useState("");
   const [originalCrichdDataSourceUrl, setOriginalCrichdDataSourceUrl] = useState("");
   const [isSavingCrichdUrl, setIsSavingCrichdUrl] = useState(false);
+  // Worldwide proxy settings
+  const [worldwideProxyUrl, setWorldwideProxyUrl] = useState("");
+  const [originalWorldwideProxyUrl, setOriginalWorldwideProxyUrl] = useState("");
+  const [worldwideBaseServer, setWorldwideBaseServer] = useState<'BD' | 'IN'>('BD');
+  const [originalWorldwideBaseServer, setOriginalWorldwideBaseServer] = useState<'BD' | 'IN'>('BD');
+  const [isSavingWorldwide, setIsSavingWorldwide] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -171,6 +177,30 @@ const Admin = () => {
     if (!crichdError && crichdData) {
       setCrichdDataSourceUrl(crichdData.value);
       setOriginalCrichdDataSourceUrl(crichdData.value);
+    }
+
+    // Fetch Worldwide proxy settings
+    const { data: proxyData } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "worldwide_proxy_url")
+      .single();
+
+    if (proxyData) {
+      setWorldwideProxyUrl(proxyData.value);
+      setOriginalWorldwideProxyUrl(proxyData.value);
+    }
+
+    const { data: baseServerData } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "worldwide_base_server")
+      .single();
+
+    if (baseServerData) {
+      const val = baseServerData.value === 'IN' ? 'IN' : 'BD';
+      setWorldwideBaseServer(val);
+      setOriginalWorldwideBaseServer(val);
     }
   };
 
@@ -267,6 +297,39 @@ const Admin = () => {
     }
 
     setIsSavingCrichdUrl(false);
+  };
+
+  const handleSaveWorldwideSettings = async () => {
+    setIsSavingWorldwide(true);
+
+    // Save proxy URL
+    const { error: proxyError } = await supabase
+      .from("app_settings")
+      .update({ value: worldwideProxyUrl.trim() })
+      .eq("key", "worldwide_proxy_url");
+
+    // Save base server
+    const { error: serverError } = await supabase
+      .from("app_settings")
+      .update({ value: worldwideBaseServer })
+      .eq("key", "worldwide_base_server");
+
+    if (proxyError || serverError) {
+      toast({
+        title: "Error",
+        description: "Failed to save Worldwide settings",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Success",
+        description: "Worldwide settings saved successfully",
+      });
+      setOriginalWorldwideProxyUrl(worldwideProxyUrl.trim());
+      setOriginalWorldwideBaseServer(worldwideBaseServer);
+    }
+
+    setIsSavingWorldwide(false);
   };
 
   const handleAddDomain = async () => {
@@ -964,6 +1027,79 @@ const Admin = () => {
                   The edge function will fetch CricHd channel data from this URL.
                 </p>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Worldwide Proxy Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="w-5 h-5" />
+              Worldwide Server Settings
+            </CardTitle>
+            <CardDescription>
+              Configure the proxy URL and base server for Watch Worldwide option
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="worldwide-proxy-url">Proxy URL Prefix</Label>
+                <Input
+                  id="worldwide-proxy-url"
+                  placeholder="https://tv.eplayhd.fun/proxy.php?link="
+                  value={worldwideProxyUrl}
+                  onChange={(e) => setWorldwideProxyUrl(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This URL will be placed before the M3U8 stream URL (e.g., proxy.php?link=STREAM_URL)
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Base Server</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="base-server"
+                      value="BD"
+                      checked={worldwideBaseServer === 'BD'}
+                      onChange={() => setWorldwideBaseServer('BD')}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <span className="text-sm">BD Server</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="base-server"
+                      value="IN"
+                      checked={worldwideBaseServer === 'IN'}
+                      onChange={() => setWorldwideBaseServer('IN')}
+                      className="w-4 h-4 text-primary"
+                    />
+                    <span className="text-sm">IN Server</span>
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Choose which server's stream URL to use as the base for the Worldwide proxy
+                </p>
+              </div>
+
+              <Button
+                onClick={handleSaveWorldwideSettings}
+                disabled={isSavingWorldwide || (worldwideProxyUrl === originalWorldwideProxyUrl && worldwideBaseServer === originalWorldwideBaseServer)}
+                className="w-full sm:w-auto"
+              >
+                {isSavingWorldwide ? (
+                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                Save Worldwide Settings
+              </Button>
             </div>
           </CardContent>
         </Card>
