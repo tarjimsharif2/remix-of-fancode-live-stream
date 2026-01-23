@@ -225,6 +225,23 @@ const WatchWorldwide = () => {
     }, AUTO_RETRY_INTERVAL);
   }, [stopAutoRetry]);
 
+  // Load JW Player script
+  useEffect(() => {
+    if (document.getElementById('jwplayer-script')) return;
+    
+    const script = document.createElement('script');
+    script.id = 'jwplayer-script';
+    script.src = '//content.jwplatform.com/libraries/IDzF9Zmk.js';
+    script.async = true;
+    script.onload = () => {
+      // Set JW Player key after script loads
+      if ((window as any).jwplayer) {
+        (window as any).jwplayer.key = 'ypdL3Acgwp4Uh2/LDE9dYh3W/EPwDMuA2yid4ytssfI=';
+      }
+    };
+    document.head.appendChild(script);
+  }, []);
+
   const initPlayer = useCallback(async () => {
     if (!playerContainerRef.current || !streamUrl) {
       return;
@@ -232,8 +249,12 @@ const WatchWorldwide = () => {
 
     // Clean up previous player
     if (playerRef.current) {
-      if (typeof playerRef.current.destroy === 'function') {
-        playerRef.current.destroy();
+      try {
+        if (typeof playerRef.current.remove === 'function') {
+          playerRef.current.remove();
+        }
+      } catch (e) {
+        console.error('Error destroying player:', e);
       }
       playerRef.current = null;
     }
@@ -245,54 +266,119 @@ const WatchWorldwide = () => {
     stopAutoRetry();
 
     try {
+      // Clear container
       if (playerContainerRef.current) {
         playerContainerRef.current.innerHTML = '';
       }
 
-      setIsPiPSupported(false); // PiP not supported for iframe
+      // Create player element
+      const playerEl = document.createElement('div');
+      playerEl.id = 'jwplayer-worldwide';
+      playerContainerRef.current?.appendChild(playerEl);
 
-      // The worldwide proxy returns a video stream through PHP - embed as iframe
-      const iframe = document.createElement('iframe');
-      iframe.src = streamUrl;
-      iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      iframe.style.border = 'none';
-      iframe.style.backgroundColor = 'black';
-      iframe.allow = 'autoplay; fullscreen; encrypted-media';
-      iframe.allowFullscreen = true;
+      // Wait for JW Player to be available
+      const waitForJwPlayer = (): Promise<void> => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const check = () => {
+            if ((window as any).jwplayer) {
+              resolve();
+            } else if (attempts > 50) {
+              reject(new Error('JW Player failed to load'));
+            } else {
+              attempts++;
+              setTimeout(check, 100);
+            }
+          };
+          check();
+        });
+      };
+
+      await waitForJwPlayer();
+
+      const jwplayer = (window as any).jwplayer;
       
-      iframe.onload = () => {
+      // Initialize JW Player
+      const player = jwplayer('jwplayer-worldwide').setup({
+        file: streamUrl,
+        type: 'hls',
+        hlshtml: true,
+        playbackRateControls: [0.75, 1, 1.25, 1.5],
+        title: 'Watching Live ePlayHD',
+        width: '100%',
+        height: '100%',
+        aspectratio: '16:9',
+        mute: false,
+        repeat: true,
+        autostart: true,
+        primary: 'html5',
+        setFullscreen: true,
+        controls: true,
+        responsive: true,
+        abouttext: 'ePlayHD.com',
+        aboutlink: '',
+        logo: {
+          file: 'https://eplayhd.com/icon/eplylogo.webp',
+          link: 'http://eplayhd.com/',
+          position: 'top-right',
+          margin: '5',
+          hide: true
+        },
+        skin: {
+          name: 'glow',
+          active: 'red',
+          inactive: '',
+          background: ''
+        }
+      });
+
+      playerRef.current = player;
+
+      // Event handlers
+      player.on('ready', () => {
+        console.log('JW Player ready');
         setIsLoading(false);
         setRetryCount(0);
         stopAutoRetry();
-      };
-      
-      iframe.onerror = () => {
-        console.error('Iframe load error');
+      });
+
+      player.on('play', () => {
+        console.log('JW Player playing');
+        setIsLoading(false);
+        stopAutoRetry();
+      });
+
+      player.on('error', (e: any) => {
+        console.error('JW Player error:', e);
         setError('The match has not started yet or the stream is unavailable.');
         setIsLoading(false);
         startAutoRetry();
-      };
-      
-      // Timeout fallback if iframe doesn't trigger load
-      const loadTimeout = setTimeout(() => {
-        if (isLoading) {
-          setIsLoading(false);
+      });
+
+      player.on('setupError', (e: any) => {
+        console.error('JW Player setup error:', e);
+        setError('Failed to initialize player. Please try again.');
+        setIsLoading(false);
+        startAutoRetry();
+      });
+
+      // Quality levels
+      player.on('levels', (e: any) => {
+        if (e.levels && e.levels.length > 0) {
+          const qualityLevels: QualityLevel[] = e.levels.map((level: any, index: number) => ({
+            id: index,
+            label: level.label || `${level.height}p`,
+            height: level.height || 0
+          }));
+          setQualities(qualityLevels);
         }
-      }, 5000);
-      
-      playerContainerRef.current?.appendChild(iframe);
-      playerRef.current = { 
-        el: iframe, 
-        destroy: () => {
-          clearTimeout(loadTimeout);
-          iframe.src = '';
-          iframe.remove();
-        },
-        core: {
-          getCurrentPlayback: () => ({ el: null })
-        }
-      };
+      });
+
+      player.on('levelsChanged', (e: any) => {
+        setCurrentQuality(e.currentQuality);
+      });
+
+      setIsPiPSupported(false);
 
     } catch (err) {
       console.error('Failed to initialize player:', err);
@@ -300,7 +386,7 @@ const WatchWorldwide = () => {
       setIsLoading(false);
       startAutoRetry();
     }
-  }, [streamUrl, stopAutoRetry, startAutoRetry, isLoading]);
+  }, [streamUrl, stopAutoRetry, startAutoRetry]);
 
   useEffect(() => {
     if (streamUrl && !isFetchingStream) {
@@ -318,7 +404,13 @@ const WatchWorldwide = () => {
     return () => {
       stopAutoRetry();
       if (playerRef.current) {
-        playerRef.current.destroy();
+        try {
+          if (typeof playerRef.current.remove === 'function') {
+            playerRef.current.remove();
+          }
+        } catch (e) {
+          console.error('Error cleaning up player:', e);
+        }
         playerRef.current = null;
       }
     };
@@ -326,19 +418,8 @@ const WatchWorldwide = () => {
 
   const handleQualityChange = (levelId: number) => {
     try {
-      const playback = playerRef.current?.core?.getCurrentPlayback?.();
-
-      if ((playback as any)?.setLevel) {
-        (playback as any).setLevel(levelId);
-        setCurrentQuality(levelId);
-        return;
-      }
-
-      const hls = (playback as any)?._hls || (playback as any)?.hls;
-      if (hls) {
-        hls.currentLevel = levelId;
-        if (typeof hls.nextLevel === 'number') hls.nextLevel = levelId;
-        if (typeof hls.loadLevel === 'number') hls.loadLevel = levelId;
+      if (playerRef.current && typeof playerRef.current.setCurrentQuality === 'function') {
+        playerRef.current.setCurrentQuality(levelId);
         setCurrentQuality(levelId);
       }
     } catch (err) {
@@ -348,19 +429,9 @@ const WatchWorldwide = () => {
 
   const handleAutoQuality = () => {
     try {
-      const playback = playerRef.current?.core?.getCurrentPlayback?.();
-
-      if ((playback as any)?.setLevel) {
-        (playback as any).setLevel(-1);
-        setCurrentQuality(-1);
-        return;
-      }
-
-      const hls = (playback as any)?._hls || (playback as any)?.hls;
-      if (hls) {
-        hls.currentLevel = -1;
-        if (typeof hls.nextLevel === 'number') hls.nextLevel = -1;
-        if (typeof hls.loadLevel === 'number') hls.loadLevel = -1;
+      // JW Player doesn't have a direct "auto" quality, use -1 or first quality
+      if (playerRef.current && typeof playerRef.current.setCurrentQuality === 'function') {
+        playerRef.current.setCurrentQuality(0);
         setCurrentQuality(-1);
       }
     } catch (err) {
