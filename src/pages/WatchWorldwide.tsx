@@ -230,7 +230,10 @@ const WatchWorldwide = () => {
     (rawProxyUrl: string) => {
       // Important: the wrapper page is same-origin with the proxy, so it avoids CORS.
       // rawProxyUrl example: https://tv.eplayhd.fun/proxy.php?link=https://.../index.m3u8
-      return `${WORLDWIDE_PLAY_WRAPPER_URL}${encodeURIComponent(rawProxyUrl)}`;
+      // NOTE: The upstream play.php expects the URL in the same unencoded format used on tv.eplayhd.fun.
+      // Example:
+      //   https://tv.eplayhd.fun/play.php?c=https://tv.eplayhd.fun/proxy.php?link=https://.../index.m3u8
+      return `${WORLDWIDE_PLAY_WRAPPER_URL}${rawProxyUrl}`;
     },
     []
   );
@@ -374,7 +377,6 @@ const WatchWorldwide = () => {
             src={`${buildEmbedUrl(streamUrl)}&t=${retryCount}`}
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen
-            referrerPolicy="no-referrer"
             onLoad={() => {
               setIsLoading(false);
               setError(null);
