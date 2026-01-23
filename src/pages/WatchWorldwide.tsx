@@ -18,7 +18,8 @@ interface QualityLevel {
 }
 
 const AUTO_RETRY_INTERVAL = 10000;
-const WORLDWIDE_PLAY_WRAPPER_URL = "https://tv.eplayhd.fun/play.php?c=";
+// Fallback if app_settings row is missing
+const DEFAULT_WORLDWIDE_WRAPPER_URL = "https://tv.eplayhd.fun/play.php?c=";
 
 const IFRAME_LOAD_TIMEOUT_MS = 9000;
 const LOADING_OVERLAY_GRACE_MS = 350;
@@ -101,6 +102,7 @@ const WatchWorldwide = () => {
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isAdminSession, setIsAdminSession] = useState(false);
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  const [wrapperUrl, setWrapperUrl] = useState<string>(DEFAULT_WORLDWIDE_WRAPPER_URL);
 
   const iframeLoadTimeoutRef = useRef<number | null>(null);
   const loadingOverlayTimerRef = useRef<number | null>(null);
@@ -178,14 +180,17 @@ const WatchWorldwide = () => {
     setIsFetchingStream(true);
     
     try {
-      // Fetch worldwide settings
-      const [proxyResult, baseServerResult] = await Promise.all([
+      // Fetch worldwide settings (proxy, base server, wrapper)
+      const [proxyResult, baseServerResult, wrapperResult] = await Promise.all([
         supabase.from("app_settings").select("value").eq("key", "worldwide_proxy_url").single(),
         supabase.from("app_settings").select("value").eq("key", "worldwide_base_server").single(),
+        supabase.from("app_settings").select("value").eq("key", "worldwide_wrapper_url").single(),
       ]);
 
       const proxyUrl = proxyResult.data?.value || '';
       const baseServer = baseServerResult.data?.value === 'IN' ? 'IN' : 'BD';
+      const fetchedWrapper = wrapperResult.data?.value || DEFAULT_WORLDWIDE_WRAPPER_URL;
+      setWrapperUrl(fetchedWrapper);
 
       if (!proxyUrl) {
         setError("Worldwide proxy not configured");
@@ -300,9 +305,9 @@ const WatchWorldwide = () => {
       // NOTE: The upstream play.php expects the URL in the same unencoded format used on tv.eplayhd.fun.
       // Example:
       //   https://tv.eplayhd.fun/play.php?c=https://tv.eplayhd.fun/proxy.php?link=https://.../index.m3u8
-      return `${WORLDWIDE_PLAY_WRAPPER_URL}${rawProxyUrl}`;
+      return `${wrapperUrl}${rawProxyUrl}`;
     },
-    []
+    [wrapperUrl]
   );
 
   useEffect(() => {
