@@ -18,6 +18,7 @@ interface QualityLevel {
 }
 
 const AUTO_RETRY_INTERVAL = 10000;
+const WORLDWIDE_PLAY_WRAPPER_URL = "https://tv.eplayhd.fun/play.php?c=";
 
 // Check if running inside an iframe from allowed domain (async version that fetches from DB)
 const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
@@ -225,203 +226,42 @@ const WatchWorldwide = () => {
     }, AUTO_RETRY_INTERVAL);
   }, [stopAutoRetry]);
 
-  // Load JW Player script
-  useEffect(() => {
-    if (document.getElementById('jwplayer-script')) return;
-    
-    const script = document.createElement('script');
-    script.id = 'jwplayer-script';
-    script.src = '//content.jwplatform.com/libraries/IDzF9Zmk.js';
-    script.async = true;
-    script.onload = () => {
-      // Set JW Player key after script loads
-      if ((window as any).jwplayer) {
-        (window as any).jwplayer.key = 'ypdL3Acgwp4Uh2/LDE9dYh3W/EPwDMuA2yid4ytssfI=';
-      }
-    };
-    document.head.appendChild(script);
-  }, []);
-
-  const initPlayer = useCallback(async () => {
-    if (!playerContainerRef.current || !streamUrl) {
-      return;
-    }
-
-    // Clean up previous player
-    if (playerRef.current) {
-      try {
-        if (typeof playerRef.current.remove === 'function') {
-          playerRef.current.remove();
-        }
-      } catch (e) {
-        console.error('Error destroying player:', e);
-      }
-      playerRef.current = null;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    setQualities([]);
-    setCurrentQuality(-1);
-    stopAutoRetry();
-
-    try {
-      // Clear container
-      if (playerContainerRef.current) {
-        playerContainerRef.current.innerHTML = '';
-      }
-
-      // Create player element
-      const playerEl = document.createElement('div');
-      playerEl.id = 'jwplayer-worldwide';
-      playerContainerRef.current?.appendChild(playerEl);
-
-      // Wait for JW Player to be available
-      const waitForJwPlayer = (): Promise<void> => {
-        return new Promise((resolve, reject) => {
-          let attempts = 0;
-          const check = () => {
-            if ((window as any).jwplayer) {
-              resolve();
-            } else if (attempts > 50) {
-              reject(new Error('JW Player failed to load'));
-            } else {
-              attempts++;
-              setTimeout(check, 100);
-            }
-          };
-          check();
-        });
-      };
-
-      await waitForJwPlayer();
-
-      const jwplayer = (window as any).jwplayer;
-      
-      // Initialize JW Player
-      const player = jwplayer('jwplayer-worldwide').setup({
-        file: streamUrl,
-        type: 'hls',
-        hlshtml: true,
-        playbackRateControls: [0.75, 1, 1.25, 1.5],
-        title: 'Watching Live ePlayHD',
-        width: '100%',
-        height: '100%',
-        aspectratio: '16:9',
-        mute: false,
-        repeat: true,
-        autostart: true,
-        primary: 'html5',
-        setFullscreen: true,
-        controls: true,
-        responsive: true,
-        abouttext: 'ePlayHD.com',
-        aboutlink: '',
-        logo: {
-          file: 'https://eplayhd.com/icon/eplylogo.webp',
-          link: 'http://eplayhd.com/',
-          position: 'top-right',
-          margin: '5',
-          hide: true
-        },
-        skin: {
-          name: 'glow',
-          active: 'red',
-          inactive: '',
-          background: ''
-        }
-      });
-
-      playerRef.current = player;
-
-      // Event handlers
-      player.on('ready', () => {
-        console.log('JW Player ready');
-        setIsLoading(false);
-        setRetryCount(0);
-        stopAutoRetry();
-      });
-
-      player.on('play', () => {
-        console.log('JW Player playing');
-        setIsLoading(false);
-        stopAutoRetry();
-      });
-
-      player.on('error', (e: any) => {
-        console.error('JW Player error:', e);
-        setError('The match has not started yet or the stream is unavailable.');
-        setIsLoading(false);
-        startAutoRetry();
-      });
-
-      player.on('setupError', (e: any) => {
-        console.error('JW Player setup error:', e);
-        setError('Failed to initialize player. Please try again.');
-        setIsLoading(false);
-        startAutoRetry();
-      });
-
-      // Quality levels
-      player.on('levels', (e: any) => {
-        if (e.levels && e.levels.length > 0) {
-          const qualityLevels: QualityLevel[] = e.levels.map((level: any, index: number) => ({
-            id: index,
-            label: level.label || `${level.height}p`,
-            height: level.height || 0
-          }));
-          setQualities(qualityLevels);
-        }
-      });
-
-      player.on('levelsChanged', (e: any) => {
-        setCurrentQuality(e.currentQuality);
-      });
-
-      setIsPiPSupported(false);
-
-    } catch (err) {
-      console.error('Failed to initialize player:', err);
-      setError('Failed to load video player. Please try again.');
-      setIsLoading(false);
-      startAutoRetry();
-    }
-  }, [streamUrl, stopAutoRetry, startAutoRetry]);
+  const buildEmbedUrl = useCallback(
+    (rawProxyUrl: string) => {
+      // Important: the wrapper page is same-origin with the proxy, so it avoids CORS.
+      // rawProxyUrl example: https://tv.eplayhd.fun/proxy.php?link=https://.../index.m3u8
+      return `${WORLDWIDE_PLAY_WRAPPER_URL}${encodeURIComponent(rawProxyUrl)}`;
+    },
+    []
+  );
 
   useEffect(() => {
     if (streamUrl && !isFetchingStream) {
-      initPlayer();
+      // Using iframe wrapper; mark loading until iframe loads.
+      setIsLoading(true);
+      setError(null);
+      stopAutoRetry();
     }
-  }, [streamUrl, isFetchingStream, initPlayer]);
+  }, [streamUrl, isFetchingStream, stopAutoRetry]);
 
   useEffect(() => {
     if (retryCount > 0) {
-      initPlayer();
+      // Force iframe reload via changing query.
+      setIsLoading(true);
+      setError(null);
     }
   }, [retryCount]);
 
   useEffect(() => {
     return () => {
       stopAutoRetry();
-      if (playerRef.current) {
-        try {
-          if (typeof playerRef.current.remove === 'function') {
-            playerRef.current.remove();
-          }
-        } catch (e) {
-          console.error('Error cleaning up player:', e);
-        }
-        playerRef.current = null;
-      }
     };
   }, [stopAutoRetry]);
 
   const handleQualityChange = (levelId: number) => {
     try {
-      if (playerRef.current && typeof playerRef.current.setCurrentQuality === 'function') {
-        playerRef.current.setCurrentQuality(levelId);
-        setCurrentQuality(levelId);
-      }
+      // Quality switching is handled inside the embedded JW Player page.
+      setCurrentQuality(levelId);
     } catch (err) {
       console.error('Quality change error:', err);
     }
@@ -429,11 +269,8 @@ const WatchWorldwide = () => {
 
   const handleAutoQuality = () => {
     try {
-      // JW Player doesn't have a direct "auto" quality, use -1 or first quality
-      if (playerRef.current && typeof playerRef.current.setCurrentQuality === 'function') {
-        playerRef.current.setCurrentQuality(0);
-        setCurrentQuality(-1);
-      }
+      // Quality switching is handled inside the embedded JW Player page.
+      setCurrentQuality(-1);
     } catch (err) {
       console.error('Auto quality error:', err);
     }
@@ -441,14 +278,8 @@ const WatchWorldwide = () => {
 
   const togglePiP = async () => {
     try {
-      const videoElement = playerRef.current?.core?.getCurrentPlayback?.()?.el;
-      if (!videoElement) return;
-
-      if (isPiPActive) {
-        await (document as any).exitPictureInPicture();
-      } else {
-        await videoElement.requestPictureInPicture();
-      }
+      // PiP control isn't reliable via cross-origin iframe; keep disabled.
+      return;
     } catch (err) {
       console.error('PiP error:', err);
     }
@@ -534,8 +365,29 @@ const WatchWorldwide = () => {
       onMouseMove={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(false)}
     >
-      {/* Player container */}
-      <div ref={playerContainerRef} className="w-full h-full" />
+      {/* Player (JW Player wrapper page in iframe to avoid CORS) */}
+      <div ref={playerContainerRef} className="w-full h-full">
+        {streamUrl ? (
+          <iframe
+            title="Worldwide Player"
+            className="w-full h-full border-0"
+            src={`${buildEmbedUrl(streamUrl)}&t=${retryCount}`}
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            onLoad={() => {
+              setIsLoading(false);
+              setError(null);
+              stopAutoRetry();
+            }}
+            onError={() => {
+              setError('The match has not started yet or the stream is unavailable.');
+              setIsLoading(false);
+              startAutoRetry();
+            }}
+          />
+        ) : null}
+      </div>
 
       {/* Loading indicator */}
       {isLoading && !error && (
