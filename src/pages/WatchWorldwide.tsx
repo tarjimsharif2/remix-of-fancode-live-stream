@@ -20,6 +20,9 @@ interface QualityLevel {
 const AUTO_RETRY_INTERVAL = 10000;
 const WORLDWIDE_PLAY_WRAPPER_URL = "https://tv.eplayhd.fun/play.php?c=";
 
+const IFRAME_LOAD_TIMEOUT_MS = 9000;
+const LOADING_OVERLAY_GRACE_MS = 350;
+
 // Check if running inside an iframe from allowed domain (async version that fetches from DB)
 const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
   const isInIframe = window.self !== window.top;
@@ -96,11 +99,26 @@ const WatchWorldwide = () => {
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [isAdminSession, setIsAdminSession] = useState(false);
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+
+  const iframeLoadTimeoutRef = useRef<number | null>(null);
+  const loadingOverlayTimerRef = useRef<number | null>(null);
 
   // Check iframe access on mount
   useEffect(() => {
     const checkAccess = async () => {
       try {
+        // Admin logged-in users should never get the upstream "Embed Only" block.
+        // For them we bypass the embed wrapper and use an in-app player.
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setIsAdminSession(true);
+          setIframeAccess({ isAllowed: true, reason: '' });
+          setIsCheckingAccess(false);
+          return;
+        }
+
         const { data, error: fnError } = await supabase.functions.invoke('get-allowed-domains');
         
         if (fnError) {
@@ -124,6 +142,29 @@ const WatchWorldwide = () => {
 
     checkAccess();
   }, []);
+
+  // Loading overlay grace (avoid flicker)
+  useEffect(() => {
+    if (loadingOverlayTimerRef.current) {
+      window.clearTimeout(loadingOverlayTimerRef.current);
+      loadingOverlayTimerRef.current = null;
+    }
+
+    if (isLoading && !error) {
+      loadingOverlayTimerRef.current = window.setTimeout(() => {
+        setShowLoadingOverlay(true);
+      }, LOADING_OVERLAY_GRACE_MS);
+    } else {
+      setShowLoadingOverlay(false);
+    }
+
+    return () => {
+      if (loadingOverlayTimerRef.current) {
+        window.clearTimeout(loadingOverlayTimerRef.current);
+        loadingOverlayTimerRef.current = null;
+      }
+    };
+  }, [isLoading, error]);
 
   // Fetch stream URL with Worldwide proxy
   const fetchStreamUrl = useCallback(async () => {
@@ -226,6 +267,32 @@ const WatchWorldwide = () => {
     }, AUTO_RETRY_INTERVAL);
   }, [stopAutoRetry]);
 
+  // Iframe load watchdog (non-admin only)
+  useEffect(() => {
+    if (!streamUrl || isAdminSession) return;
+
+    if (isLoading && !error) {
+      if (iframeLoadTimeoutRef.current) {
+        window.clearTimeout(iframeLoadTimeoutRef.current);
+        iframeLoadTimeoutRef.current = null;
+      }
+
+      iframeLoadTimeoutRef.current = window.setTimeout(() => {
+        setError('Player is taking too long to load. Retrying...');
+        setIsLoading(false);
+        startAutoRetry();
+        iframeLoadTimeoutRef.current = null;
+      }, IFRAME_LOAD_TIMEOUT_MS);
+    }
+
+    return () => {
+      if (iframeLoadTimeoutRef.current) {
+        window.clearTimeout(iframeLoadTimeoutRef.current);
+        iframeLoadTimeoutRef.current = null;
+      }
+    };
+  }, [streamUrl, isAdminSession, isLoading, error, startAutoRetry]);
+
   const buildEmbedUrl = useCallback(
     (rawProxyUrl: string) => {
       // Important: the wrapper page is same-origin with the proxy, so it avoids CORS.
@@ -240,7 +307,7 @@ const WatchWorldwide = () => {
 
   useEffect(() => {
     if (streamUrl && !isFetchingStream) {
-      // Using iframe wrapper; mark loading until iframe loads.
+      // Using iframe wrapper for non-admin; for admin we'll initialize in-app player.
       setIsLoading(true);
       setError(null);
       stopAutoRetry();
@@ -258,12 +325,127 @@ const WatchWorldwide = () => {
   useEffect(() => {
     return () => {
       stopAutoRetry();
+
+      if (iframeLoadTimeoutRef.current) {
+        window.clearTimeout(iframeLoadTimeoutRef.current);
+        iframeLoadTimeoutRef.current = null;
+      }
     };
   }, [stopAutoRetry]);
 
+  // Admin-only in-app player (avoids upstream embed restrictions)
+  const initAdminPlayer = useCallback(async () => {
+    if (!isAdminSession || !playerContainerRef.current || !streamUrl) return;
+
+    try {
+      // Cleanup
+      if (playerRef.current) {
+        playerRef.current.destroy?.();
+        playerRef.current = null;
+      }
+      playerContainerRef.current.innerHTML = '';
+
+      setIsLoading(true);
+      setError(null);
+      setQualities([]);
+      setCurrentQuality(-1);
+      stopAutoRetry();
+
+      const Clappr = await import('@clappr/player');
+      const HlsjsPlayback = await import('@clappr/hlsjs-playback');
+
+      const player = new Clappr.default.Player({
+        parent: playerContainerRef.current,
+        source: streamUrl,
+        plugins: [HlsjsPlayback.default],
+        playback: {
+          hlsjsConfig: {
+            enableWorker: true,
+            lowLatencyMode: true,
+            maxBufferLength: 12,
+            maxMaxBufferLength: 30,
+            maxBufferHole: 0.5,
+            startLevel: -1,
+            fragLoadingTimeOut: 8000,
+            fragLoadingMaxRetry: 3,
+            fragLoadingRetryDelay: 400,
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 4,
+          },
+        },
+        autoPlay: true,
+        mute: false,
+        height: '100%',
+        width: '100%',
+      });
+
+      playerRef.current = player;
+
+      const extractQualities = () => {
+        try {
+          const playback = player.core?.getCurrentPlayback?.();
+          const hls = (playback as any)?._hls || (playback as any)?.hls;
+          if (hls && Array.isArray(hls.levels) && hls.levels.length > 0) {
+            const qualityList: QualityLevel[] = hls.levels
+              .map((lvl: any, index: number) => ({
+                id: index,
+                height: lvl.height || 0,
+                label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}kbps`,
+              }))
+              .filter((q: QualityLevel) => q.height > 0)
+              .sort((a: QualityLevel, b: QualityLevel) => b.height - a.height);
+
+            if (qualityList.length > 0) {
+              setQualities(qualityList);
+              return true;
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return false;
+      };
+
+      // Give the manifest a moment to load
+      window.setTimeout(() => {
+        extractQualities();
+        setIsLoading(false);
+      }, 700);
+
+      player.on(Clappr.default.Events.PLAYER_ERROR, () => {
+        setError('The match has not started yet or the stream is unavailable.');
+        setIsLoading(false);
+        startAutoRetry();
+      });
+    } catch (err) {
+      console.error('Failed to initialize admin player:', err);
+      setError('Failed to load video player. Please try again.');
+      setIsLoading(false);
+      startAutoRetry();
+    }
+  }, [isAdminSession, streamUrl, stopAutoRetry, startAutoRetry]);
+
+  useEffect(() => {
+    if (streamUrl && !isFetchingStream && isAdminSession) {
+      initAdminPlayer();
+    }
+  }, [streamUrl, isFetchingStream, isAdminSession, initAdminPlayer]);
+
   const handleQualityChange = (levelId: number) => {
     try {
-      // Quality switching is handled inside the embedded JW Player page.
+      if (!isAdminSession) {
+        // Quality switching is handled inside the embedded player page.
+        setCurrentQuality(levelId);
+        return;
+      }
+
+      const playback = playerRef.current?.core?.getCurrentPlayback?.();
+      const hls = (playback as any)?._hls || (playback as any)?.hls;
+      if (hls) {
+        hls.currentLevel = levelId;
+        if (typeof hls.nextLevel === 'number') hls.nextLevel = levelId;
+        if (typeof hls.loadLevel === 'number') hls.loadLevel = levelId;
+      }
       setCurrentQuality(levelId);
     } catch (err) {
       console.error('Quality change error:', err);
@@ -272,7 +454,17 @@ const WatchWorldwide = () => {
 
   const handleAutoQuality = () => {
     try {
-      // Quality switching is handled inside the embedded JW Player page.
+      if (!isAdminSession) {
+        setCurrentQuality(-1);
+        return;
+      }
+      const playback = playerRef.current?.core?.getCurrentPlayback?.();
+      const hls = (playback as any)?._hls || (playback as any)?.hls;
+      if (hls) {
+        hls.currentLevel = -1;
+        if (typeof hls.nextLevel === 'number') hls.nextLevel = -1;
+        if (typeof hls.loadLevel === 'number') hls.loadLevel = -1;
+      }
       setCurrentQuality(-1);
     } catch (err) {
       console.error('Auto quality error:', err);
@@ -368,12 +560,13 @@ const WatchWorldwide = () => {
       onMouseMove={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(false)}
     >
-      {/* Player (JW Player wrapper page in iframe to avoid CORS) */}
+      {/* Player */}
       <div ref={playerContainerRef} className="w-full h-full">
-        {streamUrl ? (
+        {streamUrl && !isAdminSession ? (
           <iframe
             title="Worldwide Player"
             className="w-full h-full border-0"
+            key={`${streamUrl}::${retryCount}`}
             src={`${buildEmbedUrl(streamUrl)}&t=${retryCount}`}
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
             allowFullScreen
@@ -381,18 +574,28 @@ const WatchWorldwide = () => {
               setIsLoading(false);
               setError(null);
               stopAutoRetry();
+
+              if (iframeLoadTimeoutRef.current) {
+                window.clearTimeout(iframeLoadTimeoutRef.current);
+                iframeLoadTimeoutRef.current = null;
+              }
             }}
             onError={() => {
               setError('The match has not started yet or the stream is unavailable.');
               setIsLoading(false);
               startAutoRetry();
+
+              if (iframeLoadTimeoutRef.current) {
+                window.clearTimeout(iframeLoadTimeoutRef.current);
+                iframeLoadTimeoutRef.current = null;
+              }
             }}
           />
         ) : null}
       </div>
 
       {/* Loading indicator */}
-      {isLoading && !error && (
+      {showLoadingOverlay && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-20">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-3 border-primary border-t-transparent rounded-full animate-spin" />
