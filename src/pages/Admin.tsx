@@ -91,6 +91,8 @@ const Admin = () => {
   const [originalWorldwideProxyUrl, setOriginalWorldwideProxyUrl] = useState("");
   const [worldwideBaseServer, setWorldwideBaseServer] = useState<'BD' | 'IN'>('BD');
   const [originalWorldwideBaseServer, setOriginalWorldwideBaseServer] = useState<'BD' | 'IN'>('BD');
+  const [worldwideWrapperUrl, setWorldwideWrapperUrl] = useState("");
+  const [originalWorldwideWrapperUrl, setOriginalWorldwideWrapperUrl] = useState("");
   const [isSavingWorldwide, setIsSavingWorldwide] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -201,6 +203,18 @@ const Admin = () => {
       const val = baseServerData.value === 'IN' ? 'IN' : 'BD';
       setWorldwideBaseServer(val);
       setOriginalWorldwideBaseServer(val);
+    }
+
+    // Fetch Worldwide wrapper URL
+    const { data: wrapperData } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "worldwide_wrapper_url")
+      .single();
+
+    if (wrapperData) {
+      setWorldwideWrapperUrl(wrapperData.value);
+      setOriginalWorldwideWrapperUrl(wrapperData.value);
     }
   };
 
@@ -314,7 +328,13 @@ const Admin = () => {
       .update({ value: worldwideBaseServer })
       .eq("key", "worldwide_base_server");
 
-    if (proxyError || serverError) {
+    // Save wrapper URL
+    const { error: wrapperError } = await supabase
+      .from("app_settings")
+      .update({ value: worldwideWrapperUrl.trim() })
+      .eq("key", "worldwide_wrapper_url");
+
+    if (proxyError || serverError || wrapperError) {
       toast({
         title: "Error",
         description: "Failed to save Worldwide settings",
@@ -327,6 +347,7 @@ const Admin = () => {
       });
       setOriginalWorldwideProxyUrl(worldwideProxyUrl.trim());
       setOriginalWorldwideBaseServer(worldwideBaseServer);
+      setOriginalWorldwideWrapperUrl(worldwideWrapperUrl.trim());
     }
 
     setIsSavingWorldwide(false);
@@ -1045,6 +1066,19 @@ const Admin = () => {
           <CardContent>
             <div className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="worldwide-wrapper-url">Wrapper/Embed URL (play.php)</Label>
+                <Input
+                  id="worldwide-wrapper-url"
+                  placeholder="https://tv.eplayhd.fun/play.php?c="
+                  value={worldwideWrapperUrl}
+                  onChange={(e) => setWorldwideWrapperUrl(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The player embed page URL prefix (iframe src). The proxied stream URL will be appended.
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="worldwide-proxy-url">Proxy URL Prefix</Label>
                 <Input
                   id="worldwide-proxy-url"
@@ -1090,7 +1124,7 @@ const Admin = () => {
 
               <Button
                 onClick={handleSaveWorldwideSettings}
-                disabled={isSavingWorldwide || (worldwideProxyUrl === originalWorldwideProxyUrl && worldwideBaseServer === originalWorldwideBaseServer)}
+                disabled={isSavingWorldwide || (worldwideProxyUrl === originalWorldwideProxyUrl && worldwideBaseServer === originalWorldwideBaseServer && worldwideWrapperUrl === originalWorldwideWrapperUrl)}
                 className="w-full sm:w-auto"
               >
                 {isSavingWorldwide ? (
