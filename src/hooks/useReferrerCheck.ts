@@ -10,20 +10,22 @@ interface ReferrerCheckResult {
 
 // Check if running inside an iframe from allowed domain
 const checkIframeAccess = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
+  // Always allow dev/preview domains FIRST - before iframe check
+  const hostname = window.location.hostname;
+  const isDev = hostname === 'localhost' || 
+    hostname === '127.0.0.1' ||
+    hostname.includes('lovableproject.com') ||
+    hostname.includes('lovable.app') ||
+    hostname.includes('vercel.app');
+
+  if (isDev) {
+    return { isAllowed: true, reason: '' };
+  }
+
   const isInIframe = window.self !== window.top;
   
   if (!isInIframe) {
     return { isAllowed: false, reason: 'This content can only be accessed via embed.' };
-  }
-
-  // Always allow dev/preview domains
-  const isDev = window.location.hostname.includes('localhost') || 
-    window.location.hostname.includes('lovableproject.com') ||
-    window.location.hostname.includes('lovable.app') ||
-    window.location.hostname.includes('vercel.app');
-
-  if (isDev) {
-    return { isAllowed: true, reason: '' };
   }
 
   try {
