@@ -109,6 +109,29 @@ const Watch = () => {
   useEffect(() => {
     const checkAccess = async () => {
       try {
+        // Admin logged-in users should always have access
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setIframeAccess({ isAllowed: true, reason: '' });
+          setIsCheckingAccess(false);
+          return;
+        }
+
+        // If global embed access is OFF, allow direct access
+        const { data: embedSetting, error: embedSettingError } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "embed_access_enabled")
+          .maybeSingle();
+
+        const embedAccessEnabled = !embedSettingError && embedSetting?.value === 'true';
+
+        if (!embedAccessEnabled) {
+          setIframeAccess({ isAllowed: true, reason: '' });
+          setIsCheckingAccess(false);
+          return;
+        }
+
         // Fetch allowed domains from edge function
         const { data, error: fnError } = await supabase.functions.invoke('get-allowed-domains');
         
