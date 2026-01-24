@@ -3,6 +3,8 @@
  * Auto-detects field names from various JSON structures
  */
 
+import { StreamLink, extractStreamLinks } from './streamExtractor';
+
 // Common field name variations for each data type
 const FIELD_VARIANTS = {
   id: ['match_id', 'id', 'event_id', 'game_id', 'stream_id', 'channel_id', '_id'],
@@ -11,7 +13,6 @@ const FIELD_VARIANTS = {
   startTime: ['start_time', 'startTime', 'time', 'datetime', 'date', 'scheduled', 'start_at', 'starts_at', 'match_time'],
   status: ['status', 'state', 'live', 'is_live', 'match_status'],
   thumbnail: ['thumbnail', 'image', 'logo', 'poster', 'icon', 'thumb', 'img', 'picture', 'logo_url', 'image_url'],
-  streamUrl: ['stream_url', 'streamUrl', 'url', 'link', 'adfree_url', 'dai_url', 'hls_url', 'm3u8', 'source', 'video_url', 'play_url'],
   description: ['description', 'desc', 'info', 'details', 'summary', 'subtitle'],
 };
 
@@ -23,30 +24,6 @@ const findFieldValue = (obj: Record<string, any>, variants: string[]): any => {
     }
   }
   return null;
-};
-
-// Get stream URL with BD/IN region support
-const getStreamUrls = (obj: Record<string, any>): { streamUrl: string; bdStreamUrl: string } => {
-  // Check for specific FanCode-style URLs first
-  const adfreeUrl = obj.adfree_url || obj.adFreeUrl;
-  const daiUrl = obj.dai_url || obj.daiUrl;
-  
-  if (adfreeUrl) {
-    return {
-      streamUrl: adfreeUrl,
-      bdStreamUrl: adfreeUrl.replace('in-mc-fdlive', 'bd-mc-fdlive'),
-    };
-  }
-  
-  // Generic stream URL
-  const streamUrl = findFieldValue(obj, FIELD_VARIANTS.streamUrl) || '';
-  
-  return {
-    streamUrl,
-    bdStreamUrl: streamUrl.includes('in-mc-fdlive') 
-      ? streamUrl.replace('in-mc-fdlive', 'bd-mc-fdlive')
-      : streamUrl,
-  };
 };
 
 // Detect live status from various formats
@@ -78,15 +55,14 @@ export interface MappedMatch {
   startTime: string;
   status: string;
   thumbnail: string;
-  streamUrl: string;
-  bdStreamUrl: string;
+  streamLinks: StreamLink[]; // Multiple stream URLs
   description?: string;
   rawData: Record<string, any>; // Keep raw data for flexible display
 }
 
 // Map a single item from JSON to our format
 export const mapJsonItem = (item: Record<string, any>, index: number): MappedMatch => {
-  const { streamUrl, bdStreamUrl } = getStreamUrls(item);
+  const streamLinks = extractStreamLinks(item);
   
   return {
     matchId: (findFieldValue(item, FIELD_VARIANTS.id) || index).toString(),
@@ -95,8 +71,7 @@ export const mapJsonItem = (item: Record<string, any>, index: number): MappedMat
     startTime: findFieldValue(item, FIELD_VARIANTS.startTime) || '',
     status: detectLiveStatus(item),
     thumbnail: findFieldValue(item, FIELD_VARIANTS.thumbnail) || '',
-    streamUrl,
-    bdStreamUrl,
+    streamLinks,
     description: findFieldValue(item, FIELD_VARIANTS.description) || '',
     rawData: item,
   };

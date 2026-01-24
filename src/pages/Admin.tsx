@@ -36,10 +36,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link, Lock, FileJson } from "lucide-react";
+import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link, Lock, FileJson, Settings } from "lucide-react";
 import { CustomChannelManager } from "@/components/admin/CustomChannelManager";
 import { M3uPlaylistManager } from "@/components/admin/M3uPlaylistManager";
 import { JsonSourceManager } from "@/components/admin/JsonSourceManager";
+import { PlayerSettings } from "@/components/admin/PlayerSettings";
 
 interface AllowedDomain {
   id: string;
@@ -1100,6 +1101,11 @@ const Admin = () => {
         {/* JSON Sources Manager */}
         <div className="mt-6">
           <JsonSourceManager />
+        </div>
+
+        {/* Player Settings */}
+        <div className="mt-6">
+          <PlayerSettings />
         </div>
 
         {/* Worldwide Proxy Settings */}
