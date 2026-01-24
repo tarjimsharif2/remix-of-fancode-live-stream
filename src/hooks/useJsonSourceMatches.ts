@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Match } from "@/types/match";
+import { MappedMatch, mapJsonResponse } from "@/utils/jsonFieldMapper";
 
 export const useJsonSourceMatches = (sourceSlug: string) => {
-  const [matches, setMatches] = useState<Match[]>([]);
+  const [matches, setMatches] = useState<MappedMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -41,21 +41,10 @@ export const useJsonSourceMatches = (sourceSlug: string) => {
 
       if (fnError) throw fnError;
 
-      if (data?.success && data.matches) {
-        const formattedMatches: Match[] = data.matches.map((match: any) => ({
-          matchId: match.match_id?.toString() || "",
-          title: match.title || match.match_title || "Unknown Match",
-          category: match.category || match.sport || "Sports",
-          startTime: match.start_time || match.startTime || "",
-          status: match.status || "upcoming",
-          thumbnail: match.thumbnail || match.image || "",
-          streamUrl: match.adfree_url || match.dai_url || match.stream_url || "",
-          bdStreamUrl: match.adfree_url
-            ? match.adfree_url.replace("in-mc-fdlive", "bd-mc-fdlive")
-            : "",
-        }));
-
-        setMatches(formattedMatches);
+      if (data?.success) {
+        // Use smart mapper to handle any JSON structure
+        const mappedMatches = mapJsonResponse(data.matches || data);
+        setMatches(mappedMatches);
         setLastUpdated(new Date());
       } else {
         setMatches([]);
