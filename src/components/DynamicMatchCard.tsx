@@ -49,7 +49,7 @@ const getStatusColor = (status: string): string => {
 };
 
 export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: DynamicMatchCardProps) => {
-  const hasStream = !!match.streamUrl;
+  const hasStream = match.streamLinks && match.streamLinks.length > 0;
   const formattedTime = formatTime(match.startTime);
   
   return (
