@@ -124,6 +124,21 @@ const WatchWorldwide = () => {
           return;
         }
 
+        // If global embed access is OFF, allow direct access
+        const { data: embedSetting, error: embedSettingError } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "embed_access_enabled")
+          .maybeSingle();
+
+        const embedAccessEnabled = !embedSettingError && embedSetting?.value === 'true';
+
+        if (!embedAccessEnabled) {
+          setIframeAccess({ isAllowed: true, reason: '' });
+          setIsCheckingAccess(false);
+          return;
+        }
+
         const { data, error: fnError } = await supabase.functions.invoke('get-allowed-domains');
         
         if (fnError) {
