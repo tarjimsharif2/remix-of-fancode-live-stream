@@ -36,7 +36,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link } from "lucide-react";
+import { Globe, Plus, Trash2, LogOut, Shield, Edit, Server, Monitor, Key, Database, Save, RefreshCw, Link, Lock } from "lucide-react";
 import { CustomChannelManager } from "@/components/admin/CustomChannelManager";
 import { M3uPlaylistManager } from "@/components/admin/M3uPlaylistManager";
 
@@ -94,6 +94,10 @@ const Admin = () => {
   const [worldwideWrapperUrl, setWorldwideWrapperUrl] = useState("");
   const [originalWorldwideWrapperUrl, setOriginalWorldwideWrapperUrl] = useState("");
   const [isSavingWorldwide, setIsSavingWorldwide] = useState(false);
+  // Embed Access settings
+  const [embedAccessEnabled, setEmbedAccessEnabled] = useState(false);
+  const [originalEmbedAccessEnabled, setOriginalEmbedAccessEnabled] = useState(false);
+  const [isSavingEmbedAccess, setIsSavingEmbedAccess] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -215,6 +219,19 @@ const Admin = () => {
     if (wrapperData) {
       setWorldwideWrapperUrl(wrapperData.value);
       setOriginalWorldwideWrapperUrl(wrapperData.value);
+    }
+
+    // Fetch Embed Access setting
+    const { data: embedAccessData } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "embed_access_enabled")
+      .single();
+
+    if (embedAccessData) {
+      const enabled = embedAccessData.value === 'true';
+      setEmbedAccessEnabled(enabled);
+      setOriginalEmbedAccessEnabled(enabled);
     }
   };
 
@@ -351,6 +368,33 @@ const Admin = () => {
     }
 
     setIsSavingWorldwide(false);
+  };
+
+  const handleToggleEmbedAccess = async (enabled: boolean) => {
+    setIsSavingEmbedAccess(true);
+    setEmbedAccessEnabled(enabled);
+
+    const { error } = await supabase
+      .from("app_settings")
+      .update({ value: enabled ? 'true' : 'false' })
+      .eq("key", "embed_access_enabled");
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update Embed Access setting",
+        variant: "destructive",
+      });
+      setEmbedAccessEnabled(!enabled);
+    } else {
+      toast({
+        title: "Success",
+        description: `Embed Access ${enabled ? 'enabled' : 'disabled'}`,
+      });
+      setOriginalEmbedAccessEnabled(enabled);
+    }
+
+    setIsSavingEmbedAccess(false);
   };
 
   const handleAddDomain = async () => {
@@ -1135,6 +1179,39 @@ const Admin = () => {
                 Save Worldwide Settings
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Embed Access Settings */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5" />
+              Embed Access Control
+            </CardTitle>
+            <CardDescription>
+              When enabled, the site can only be accessed via iframe embed from allowed domains
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div className="space-y-1">
+                <p className="font-medium">Embed-Only Access</p>
+                <p className="text-sm text-muted-foreground">
+                  {embedAccessEnabled 
+                    ? 'Site is restricted to iframe embeds from Embed domains list' 
+                    : 'Site is accessible directly without iframe restrictions'}
+                </p>
+              </div>
+              <Switch
+                checked={embedAccessEnabled}
+                onCheckedChange={handleToggleEmbedAccess}
+                disabled={isSavingEmbedAccess}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              ⚠️ Admin panel and logged-in admins always bypass this restriction. Dev/preview environments are also excluded.
+            </p>
           </CardContent>
         </Card>
 
