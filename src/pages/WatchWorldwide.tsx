@@ -26,19 +26,22 @@ const LOADING_OVERLAY_GRACE_MS = 350;
 
 // Check if running inside an iframe from allowed domain (async version that fetches from DB)
 const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
+  // Always allow dev/preview domains FIRST - before iframe check
+  const hostname = window.location.hostname;
+  const isDev = hostname === 'localhost' || 
+    hostname === '127.0.0.1' ||
+    hostname.includes('lovableproject.com') ||
+    hostname.includes('lovable.app') ||
+    hostname.includes('vercel.app');
+
+  if (isDev) {
+    return { isAllowed: true, reason: '' };
+  }
+
   const isInIframe = window.self !== window.top;
   
   if (!isInIframe) {
     return { isAllowed: false, reason: 'This player can only be accessed via embed.' };
-  }
-
-  const isDev = window.location.hostname.includes('localhost') || 
-    window.location.hostname.includes('lovableproject.com') ||
-    window.location.hostname.includes('lovable.app') ||
-    window.location.hostname.includes('vercel.app');
-
-  if (isDev) {
-    return { isAllowed: true, reason: '' };
   }
 
   try {
