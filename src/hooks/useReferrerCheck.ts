@@ -8,6 +8,63 @@ interface ReferrerCheckResult {
   referrer: string | null;
 }
 
+// Check if running inside an iframe from allowed domain
+const checkIframeAccess = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
+  const isInIframe = window.self !== window.top;
+  
+  if (!isInIframe) {
+    return { isAllowed: false, reason: 'This content can only be accessed via embed.' };
+  }
+
+  // Always allow dev/preview domains
+  const isDev = window.location.hostname.includes('localhost') || 
+    window.location.hostname.includes('lovableproject.com') ||
+    window.location.hostname.includes('lovable.app') ||
+    window.location.hostname.includes('vercel.app');
+
+  if (isDev) {
+    return { isAllowed: true, reason: '' };
+  }
+
+  try {
+    const parentOrigin = document.referrer;
+    
+    if (!parentOrigin) {
+      return { isAllowed: false, reason: 'Unable to verify parent origin.' };
+    }
+
+    const parentUrl = new URL(parentOrigin);
+    const parentHostname = parentUrl.hostname;
+
+    const isAllowedDomain = allowedDomains.some(domain => 
+      parentHostname === domain || parentHostname.endsWith('.' + domain)
+    );
+
+    if (!isAllowedDomain) {
+      return { isAllowed: false, reason: 'Embedding not authorized for this domain.' };
+    }
+
+    return { isAllowed: true, reason: '' };
+  } catch {
+    // Cross-origin error - check referrer as fallback
+    const referrer = document.referrer;
+    if (referrer) {
+      try {
+        const refUrl = new URL(referrer);
+        const isAllowed = allowedDomains.some(domain => 
+          refUrl.hostname === domain || refUrl.hostname.endsWith('.' + domain)
+        );
+        if (isAllowed) {
+          return { isAllowed: true, reason: '' };
+        }
+      } catch {
+        // Invalid referrer URL
+      }
+    }
+    return { isAllowed: false, reason: 'Unable to verify embed origin.' };
+  }
+};
+
 export const useReferrerCheck = (): ReferrerCheckResult => {
   const [isAllowed, setIsAllowed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +88,61 @@ export const useReferrerCheck = (): ReferrerCheckResult => {
         return;
       }
 
+      // Allow localhost/dev environments
+      const hostname = window.location.hostname;
+      if (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname.includes("lovableproject.com") ||
+        hostname.includes("lovable.app")
+      ) {
+        setIsAllowed(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // ===== Check Embed Access =====
+      // Fetch embed_access_enabled setting
+      const { data: embedSetting } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "embed_access_enabled")
+        .single();
+
+      const embedAccessEnabled = embedSetting?.value === 'true';
+
+      if (embedAccessEnabled) {
+        // Embed access is ON - must be accessed via iframe from allowed embed domains
+        try {
+          const { data, error: fnError } = await supabase.functions.invoke('get-allowed-domains');
+          
+          if (fnError) {
+            console.error('Failed to fetch allowed domains:', fnError);
+            setIsAllowed(false);
+            setIsLoading(false);
+            return;
+          }
+          
+          const domains = data?.domains || [];
+          const access = await checkIframeAccess(domains);
+          
+          if (!access.isAllowed) {
+            console.log('Embed access denied:', access.reason);
+            setIsAllowed(false);
+            setIsLoading(false);
+            return;
+          }
+          
+          // Passed embed check, now continue to referrer check
+        } catch (err) {
+          console.error('Error checking embed access:', err);
+          setIsAllowed(false);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // ===== Referrer Check =====
       // Get referrer from document
       const docReferrer = document.referrer;
       setReferrer(docReferrer);
@@ -47,19 +159,6 @@ export const useReferrerCheck = (): ReferrerCheckResult => {
             setIsLoading(false);
             return;
           }
-        }
-
-        // Allow localhost/dev environments
-        const hostname = window.location.hostname;
-        if (
-          hostname === "localhost" ||
-          hostname === "127.0.0.1" ||
-          hostname.includes("lovableproject.com") ||
-          hostname.includes("lovable.app")
-        ) {
-          setIsAllowed(true);
-          setIsLoading(false);
-          return;
         }
 
         setIsAllowed(false);
