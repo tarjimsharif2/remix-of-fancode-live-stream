@@ -38,6 +38,14 @@ const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAll
     return { isAllowed: true, reason: '' };
   }
 
+  // Allow direct access from self-origin (if current hostname is in allowed domains)
+  const isSelfAllowed = allowedDomains.some(domain => 
+    hostname === domain || hostname.endsWith('.' + domain)
+  );
+  if (isSelfAllowed) {
+    return { isAllowed: true, reason: '' };
+  }
+
   const isInIframe = window.self !== window.top;
   
   if (!isInIframe) {
