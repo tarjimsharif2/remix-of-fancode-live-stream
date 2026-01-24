@@ -12,6 +12,8 @@ import MyPlay from "./pages/MyPlay";
 import MyPlayWatch from "./pages/MyPlayWatch";
 import Playlist from "./pages/Playlist";
 import PlaylistWatch from "./pages/PlaylistWatch";
+import LiveSource from "./pages/LiveSource";
+import LiveSourceWatch from "./pages/LiveSourceWatch";
 import Admin from "./pages/Admin";
 import AdminAuth from "./pages/AdminAuth";
 import NotFound from "./pages/NotFound";
@@ -37,6 +39,11 @@ const App = () => (
             <Route path="/myplay/watch" element={<MyPlayWatch />} />
             <Route path="/playlist/:slug" element={<Playlist />} />
             <Route path="/playlist/:slug/watch" element={<PlaylistWatch />} />
+            {/* Dynamic JSON Sources */}
+            <Route path="/live/:slug" element={<LiveSource />} />
+            <Route path="/live/:slug/play-bd" element={<LiveSourceWatch />} />
+            <Route path="/live/:slug/play-in" element={<LiveSourceWatch />} />
+            <Route path="/live/:slug/play-ww" element={<LiveSourceWatch />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/login" element={<AdminAuth />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
