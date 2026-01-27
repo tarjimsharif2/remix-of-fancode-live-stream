@@ -61,6 +61,7 @@ const LiveSourceWatch = () => {
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [playerType, setPlayerType] = useState<PlayerType>('clappr');
   const [iframeWrapperUrl, setIframeWrapperUrl] = useState<string>('');
+  const [linkPrefixes, setLinkPrefixes] = useState<Record<string, string>>({});
 
   // Check iframe access and load settings
   useEffect(() => {
@@ -121,6 +122,21 @@ const LiveSourceWatch = () => {
         if (wrapperSetting?.value) {
           setIframeWrapperUrl(wrapperSetting.value);
         }
+
+        // Load link prefixes
+        const { data: prefixSetting } = await supabase
+          .from("app_settings")
+          .select("value")
+          .eq("key", "json_link_prefixes")
+          .maybeSingle();
+
+        if (prefixSetting?.value) {
+          try {
+            setLinkPrefixes(JSON.parse(prefixSetting.value));
+          } catch {
+            setLinkPrefixes({});
+          }
+        }
       } catch (err) {
         console.error('Error during init:', err);
         setIframeAccess({ isAllowed: false, reason: 'Unable to verify authorization.' });
@@ -172,7 +188,15 @@ const LiveSourceWatch = () => {
           const linkIndex = Math.max(0, Math.min(linkNumber - 1, links.length - 1));
           
           if (links.length > 0 && links[linkIndex]) {
-            setCurrentStreamUrl(links[linkIndex].url);
+            let streamUrl = links[linkIndex].url;
+            
+            // Apply prefix if configured for this link position
+            const prefix = linkPrefixes[linkNumber.toString()];
+            if (prefix) {
+              streamUrl = prefix + encodeURIComponent(streamUrl);
+            }
+            
+            setCurrentStreamUrl(streamUrl);
             setIsLoading(false);
             return;
           }
@@ -187,7 +211,7 @@ const LiveSourceWatch = () => {
     }
     
     setIsLoading(false);
-  }, [matchId, slug, linkNumber]);
+  }, [matchId, slug, linkNumber, linkPrefixes]);
 
   useEffect(() => {
     if (iframeAccess?.isAllowed) {
