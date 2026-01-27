@@ -41,6 +41,7 @@ import { CustomChannelManager } from "@/components/admin/CustomChannelManager";
 import { M3uPlaylistManager } from "@/components/admin/M3uPlaylistManager";
 import { JsonSourceManager } from "@/components/admin/JsonSourceManager";
 import { PlayerSettings } from "@/components/admin/PlayerSettings";
+import { LinkPrefixSettings } from "@/components/admin/LinkPrefixSettings";
 
 interface AllowedDomain {
   id: string;
@@ -1106,6 +1107,11 @@ const Admin = () => {
         {/* Player Settings */}
         <div className="mt-6">
           <PlayerSettings />
+        </div>
+
+        {/* Link Prefix Settings */}
+        <div className="mt-6">
+          <LinkPrefixSettings />
         </div>
 
         {/* Worldwide Proxy Settings */}
