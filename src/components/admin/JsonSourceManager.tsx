@@ -1,12 +1,21 @@
 import { useState } from "react";
-import { Plus, Trash2, Edit2, Check, X, ExternalLink, GripVertical } from "lucide-react";
+import { Plus, Trash2, Edit2, Check, X, ExternalLink, GripVertical, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useJsonSources } from "@/hooks/useJsonSources";
+import { PLAYER_CONFIGS, PlayerType } from "@/types/playerTypes";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 
 export const JsonSourceManager = () => {
   const { sources, loading, addSource, updateSource, deleteSource, refetch } = useJsonSources();
@@ -20,6 +29,7 @@ export const JsonSourceManager = () => {
     url: "",
     description: "",
     is_active: true,
+    default_player: "clappr" as PlayerType,
   });
   
   const [editSource, setEditSource] = useState({
@@ -27,6 +37,7 @@ export const JsonSourceManager = () => {
     slug: "",
     url: "",
     description: "",
+    default_player: "clappr" as PlayerType,
   });
 
   const generateSlug = (name: string) => {
@@ -47,7 +58,7 @@ export const JsonSourceManager = () => {
         ...newSource,
         slug: newSource.slug || generateSlug(newSource.name),
       });
-      setNewSource({ name: "", slug: "", url: "", description: "", is_active: true });
+      setNewSource({ name: "", slug: "", url: "", description: "", is_active: true, default_player: "clappr" });
       setIsAdding(false);
       toast.success("JSON source added successfully");
     } catch (err: any) {
@@ -85,6 +96,15 @@ export const JsonSourceManager = () => {
     }
   };
 
+  const handlePlayerChange = async (id: string, player: PlayerType) => {
+    try {
+      await updateSource(id, { default_player: player });
+      toast.success("Player updated");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update player");
+    }
+  };
+
   const startEdit = (source: any) => {
     setEditingId(source.id);
     setEditSource({
@@ -92,7 +112,13 @@ export const JsonSourceManager = () => {
       slug: source.slug,
       url: source.url,
       description: source.description || "",
+      default_player: source.default_player || "clappr",
     });
+  };
+
+  const getPlayerLabel = (type: PlayerType) => {
+    const config = PLAYER_CONFIGS.find(c => c.type === type);
+    return config ? `${config.icon} ${config.label}` : type;
   };
 
   if (loading) {
@@ -154,13 +180,39 @@ export const JsonSourceManager = () => {
                 onChange={(e) => setNewSource({ ...newSource, url: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Input
-                placeholder="Optional description"
-                value={newSource.description}
-                onChange={(e) => setNewSource({ ...newSource, description: e.target.value })}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Input
+                  placeholder="Optional description"
+                  value={newSource.description}
+                  onChange={(e) => setNewSource({ ...newSource, description: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Play className="w-4 h-4" />
+                  Default Player
+                </Label>
+                <Select
+                  value={newSource.default_player}
+                  onValueChange={(value) => setNewSource({ ...newSource, default_player: value as PlayerType })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLAYER_CONFIGS.map((config) => (
+                      <SelectItem key={config.type} value={config.type}>
+                        <span className="flex items-center gap-2">
+                          <span>{config.icon}</span>
+                          {config.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Switch
@@ -179,7 +231,7 @@ export const JsonSourceManager = () => {
                 size="sm"
                 onClick={() => {
                   setIsAdding(false);
-                  setNewSource({ name: "", slug: "", url: "", description: "", is_active: true });
+                  setNewSource({ name: "", slug: "", url: "", description: "", is_active: true, default_player: "clappr" });
                 }}
               >
                 <X className="w-4 h-4 mr-2" />
@@ -196,17 +248,13 @@ export const JsonSourceManager = () => {
         )}
 
         <div className="space-y-3">
-          {sources.map((source) => (
+          {sources.map((source: any) => (
             <div
               key={source.id}
-              className="p-4 border rounded-lg flex flex-col md:flex-row md:items-center gap-4"
+              className="p-4 border rounded-lg flex flex-col gap-4"
             >
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <GripVertical className="w-4 h-4" />
-              </div>
-
               {editingId === source.id ? (
-                <div className="flex-1 space-y-3">
+                <div className="space-y-3">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <Input
                       value={editSource.name}
@@ -224,6 +272,31 @@ export const JsonSourceManager = () => {
                     onChange={(e) => setEditSource({ ...editSource, url: e.target.value })}
                     placeholder="URL"
                   />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Input
+                      value={editSource.description}
+                      onChange={(e) => setEditSource({ ...editSource, description: e.target.value })}
+                      placeholder="Description"
+                    />
+                    <Select
+                      value={editSource.default_player}
+                      onValueChange={(value) => setEditSource({ ...editSource, default_player: value as PlayerType })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PLAYER_CONFIGS.map((config) => (
+                          <SelectItem key={config.type} value={config.type}>
+                            <span className="flex items-center gap-2">
+                              <span>{config.icon}</span>
+                              {config.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => handleUpdate(source.id)}>
                       <Check className="w-4 h-4 mr-1" />
@@ -236,21 +309,42 @@ export const JsonSourceManager = () => {
                   </div>
                 </div>
               ) : (
-                <>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                <div className="flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <GripVertical className="w-4 h-4" />
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="font-medium">{source.name}</h4>
                       <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
                         /{source.slug}
                       </span>
+                      <Badge variant="outline" className="text-xs">
+                        {getPlayerLabel(source.default_player || 'clappr')}
+                      </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground truncate max-w-md">{source.url}</p>
-                    {source.description && (
-                      <p className="text-xs text-muted-foreground mt-1">{source.description}</p>
-                    )}
+                    <p className="text-sm text-muted-foreground truncate">{source.url}</p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Quick Player Selector */}
+                    <Select
+                      value={source.default_player || 'clappr'}
+                      onValueChange={(value) => handlePlayerChange(source.id, value as PlayerType)}
+                    >
+                      <SelectTrigger className="w-28 h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PLAYER_CONFIGS.map((config) => (
+                          <SelectItem key={config.type} value={config.type}>
+                            {config.icon} {config.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
                     <Switch
                       checked={source.is_active}
                       onCheckedChange={() => handleToggleActive(source.id, source.is_active)}
@@ -275,7 +369,7 @@ export const JsonSourceManager = () => {
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
-                </>
+                </div>
               )}
             </div>
           ))}
