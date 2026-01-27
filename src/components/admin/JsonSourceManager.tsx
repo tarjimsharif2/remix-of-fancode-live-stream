@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Edit2, Check, X, ExternalLink, GripVertical, Play } from "lucide-react";
+import { Plus, Trash2, Edit2, Check, X, ExternalLink, GripVertical, Play, Link2, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useJsonSources } from "@/hooks/useJsonSources";
 import { PLAYER_CONFIGS, PlayerType } from "@/types/playerTypes";
 import { toast } from "sonner";
@@ -22,6 +27,8 @@ export const JsonSourceManager = () => {
   
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedPrefixId, setExpandedPrefixId] = useState<string | null>(null);
+  const [editingPrefixes, setEditingPrefixes] = useState<{ position: number; prefix: string }[]>([]);
   
   const [newSource, setNewSource] = useState({
     name: "",
@@ -119,6 +126,71 @@ export const JsonSourceManager = () => {
   const getPlayerLabel = (type: PlayerType) => {
     const config = PLAYER_CONFIGS.find(c => c.type === type);
     return config ? `${config.icon} ${config.label}` : type;
+  };
+
+  // Link Prefix Management
+  const togglePrefixExpand = (sourceId: string, currentPrefixes: Record<string, string> | null) => {
+    if (expandedPrefixId === sourceId) {
+      setExpandedPrefixId(null);
+      setEditingPrefixes([]);
+    } else {
+      setExpandedPrefixId(sourceId);
+      // Convert object to array
+      const prefixArray = currentPrefixes
+        ? Object.entries(currentPrefixes).map(([pos, prefix]) => ({
+            position: parseInt(pos, 10),
+            prefix: prefix as string,
+          })).sort((a, b) => a.position - b.position)
+        : [];
+      setEditingPrefixes(prefixArray);
+    }
+  };
+
+  const handleAddPrefixEntry = () => {
+    const nextPos = editingPrefixes.length > 0
+      ? Math.max(...editingPrefixes.map(p => p.position)) + 1
+      : 1;
+    setEditingPrefixes([...editingPrefixes, { position: nextPos, prefix: '' }]);
+  };
+
+  const handleRemovePrefixEntry = (position: number) => {
+    setEditingPrefixes(editingPrefixes.filter(p => p.position !== position));
+  };
+
+  const handlePrefixChange = (position: number, newPrefix: string) => {
+    setEditingPrefixes(editingPrefixes.map(p =>
+      p.position === position ? { ...p, prefix: newPrefix } : p
+    ));
+  };
+
+  const handlePrefixPositionChange = (oldPos: number, newPos: number) => {
+    if (newPos < 1) return;
+    setEditingPrefixes(editingPrefixes.map(p =>
+      p.position === oldPos ? { ...p, position: newPos } : p
+    ));
+  };
+
+  const handleSavePrefixes = async (sourceId: string) => {
+    try {
+      // Convert array to object
+      const prefixObj: Record<string, string> = {};
+      editingPrefixes.forEach(p => {
+        if (p.prefix.trim()) {
+          prefixObj[p.position.toString()] = p.prefix.trim();
+        }
+      });
+
+      await updateSource(sourceId, { link_prefixes: prefixObj });
+      toast.success("Link prefixes saved");
+      setExpandedPrefixId(null);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save prefixes");
+    }
+  };
+
+  const getPrefixCount = (prefixes: Record<string, string> | null) => {
+    if (!prefixes) return 0;
+    return Object.keys(prefixes).length;
   };
 
   if (loading) {
@@ -309,66 +381,156 @@ export const JsonSourceManager = () => {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col md:flex-row md:items-center gap-4">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <GripVertical className="w-4 h-4" />
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="font-medium">{source.name}</h4>
-                      <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                        /{source.slug}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {getPlayerLabel(source.default_player || 'clappr')}
-                      </Badge>
+                <div className="space-y-3">
+                  <div className="flex flex-col md:flex-row md:items-center gap-4">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <GripVertical className="w-4 h-4" />
                     </div>
-                    <p className="text-sm text-muted-foreground truncate">{source.url}</p>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-medium">{source.name}</h4>
+                        <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                          /{source.slug}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {getPlayerLabel(source.default_player || 'clappr')}
+                        </Badge>
+                        {getPrefixCount(source.link_prefixes) > 0 && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Link2 className="w-3 h-3 mr-1" />
+                            {getPrefixCount(source.link_prefixes)} prefix
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">{source.url}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Link Prefix Toggle */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => togglePrefixExpand(source.id, source.link_prefixes)}
+                      >
+                        <Link2 className="w-4 h-4 mr-1" />
+                        Prefix
+                        {expandedPrefixId === source.id ? (
+                          <ChevronUp className="w-3 h-3 ml-1" />
+                        ) : (
+                          <ChevronDown className="w-3 h-3 ml-1" />
+                        )}
+                      </Button>
+
+                      {/* Quick Player Selector */}
+                      <Select
+                        value={source.default_player || 'clappr'}
+                        onValueChange={(value) => handlePlayerChange(source.id, value as PlayerType)}
+                      >
+                        <SelectTrigger className="w-28 h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PLAYER_CONFIGS.map((config) => (
+                            <SelectItem key={config.type} value={config.type}>
+                              {config.icon} {config.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      
+                      <Switch
+                        checked={source.is_active}
+                        onCheckedChange={() => handleToggleActive(source.id, source.is_active)}
+                      />
+                      <a
+                        href={`/live/${source.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                      <Button variant="ghost" size="icon" onClick={() => startEdit(source)}>
+                        <Edit2 className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDelete(source.id, source.name)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Quick Player Selector */}
-                    <Select
-                      value={source.default_player || 'clappr'}
-                      onValueChange={(value) => handlePlayerChange(source.id, value as PlayerType)}
-                    >
-                      <SelectTrigger className="w-28 h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PLAYER_CONFIGS.map((config) => (
-                          <SelectItem key={config.type} value={config.type}>
-                            {config.icon} {config.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    
-                    <Switch
-                      checked={source.is_active}
-                      onCheckedChange={() => handleToggleActive(source.id, source.is_active)}
-                    />
-                    <a
-                      href={`/live/${source.slug}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                    <Button variant="ghost" size="icon" onClick={() => startEdit(source)}>
-                      <Edit2 className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(source.id, source.name)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  {/* Collapsible Link Prefixes */}
+                  {expandedPrefixId === source.id && (
+                    <div className="bg-muted/50 rounded-lg p-4 space-y-3 border">
+                      <div className="flex items-center gap-2">
+                        <Link2 className="w-4 h-4" />
+                        <Label className="font-medium">Link Proxy Prefixes</Label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Set proxy URL for each link position (1, 2, 3...). Stream URL will be appended.
+                      </p>
+
+                      {editingPrefixes.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-2">No prefixes configured.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {editingPrefixes.map((p) => (
+                            <div key={p.position} className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-muted-foreground">Link</span>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={p.position}
+                                  onChange={(e) => handlePrefixPositionChange(p.position, parseInt(e.target.value, 10) || 1)}
+                                  className="w-14 h-8 text-center text-xs"
+                                />
+                              </div>
+                              <Input
+                                placeholder="https://proxy.example.com/?url="
+                                value={p.prefix}
+                                onChange={(e) => handlePrefixChange(p.position, e.target.value)}
+                                className="flex-1 h-8 text-xs"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive"
+                                onClick={() => handleRemovePrefixEntry(p.position)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 pt-2">
+                        <Button variant="outline" size="sm" onClick={handleAddPrefixEntry}>
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add Link
+                        </Button>
+                        <Button size="sm" onClick={() => handleSavePrefixes(source.id)}>
+                          <Check className="w-3 h-3 mr-1" />
+                          Save Prefixes
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setExpandedPrefixId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

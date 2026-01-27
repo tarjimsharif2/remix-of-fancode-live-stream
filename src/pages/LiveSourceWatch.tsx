@@ -61,7 +61,7 @@ const LiveSourceWatch = () => {
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [playerType, setPlayerType] = useState<PlayerType>('clappr');
   const [iframeWrapperUrl, setIframeWrapperUrl] = useState<string>('');
-  const [linkPrefixes, setLinkPrefixes] = useState<Record<string, string>>({});
+  const [sourceLinkPrefixes, setSourceLinkPrefixes] = useState<Record<string, string>>({});
 
   // Check iframe access and load settings
   useEffect(() => {
@@ -122,21 +122,6 @@ const LiveSourceWatch = () => {
         if (wrapperSetting?.value) {
           setIframeWrapperUrl(wrapperSetting.value);
         }
-
-        // Load link prefixes
-        const { data: prefixSetting } = await supabase
-          .from("app_settings")
-          .select("value")
-          .eq("key", "json_link_prefixes")
-          .maybeSingle();
-
-        if (prefixSetting?.value) {
-          try {
-            setLinkPrefixes(JSON.parse(prefixSetting.value));
-          } catch {
-            setLinkPrefixes({});
-          }
-        }
       } catch (err) {
         console.error('Error during init:', err);
         setIframeAccess({ isAllowed: false, reason: 'Unable to verify authorization.' });
@@ -158,9 +143,10 @@ const LiveSourceWatch = () => {
     setIsLoading(true);
     
     try {
+      // Fetch source with link_prefixes
       const { data: sourceData, error: sourceError } = await supabase
         .from("json_sources")
-        .select("url")
+        .select("url, link_prefixes")
         .eq("slug", slug)
         .eq("is_active", true)
         .single();
@@ -168,6 +154,10 @@ const LiveSourceWatch = () => {
       if (sourceError || !sourceData) {
         throw new Error("Source not found");
       }
+
+      // Store prefixes from source
+      const prefixes = (sourceData.link_prefixes as Record<string, string>) || {};
+      setSourceLinkPrefixes(prefixes);
 
       const { data, error: fnError } = await supabase.functions.invoke('fetch-json-source', {
         body: { url: sourceData.url },
@@ -190,8 +180,8 @@ const LiveSourceWatch = () => {
           if (links.length > 0 && links[linkIndex]) {
             let streamUrl = links[linkIndex].url;
             
-            // Apply prefix if configured for this link position
-            const prefix = linkPrefixes[linkNumber.toString()];
+            // Apply prefix from source if configured for this link position
+            const prefix = prefixes[linkNumber.toString()];
             if (prefix) {
               streamUrl = prefix + encodeURIComponent(streamUrl);
             }
@@ -211,7 +201,7 @@ const LiveSourceWatch = () => {
     }
     
     setIsLoading(false);
-  }, [matchId, slug, linkNumber, linkPrefixes]);
+  }, [matchId, slug, linkNumber]);
 
   useEffect(() => {
     if (iframeAccess?.isAllowed) {
