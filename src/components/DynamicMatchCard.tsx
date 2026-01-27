@@ -74,14 +74,16 @@ interface StreamBadgeProps {
   link: StreamLink;
   baseUrl: string;
   matchId: string;
+  linkNumber: number; // 1-based index
 }
 
-const StreamBadge = ({ link, baseUrl, matchId }: StreamBadgeProps) => {
+const StreamBadge = ({ link, baseUrl, matchId, linkNumber }: StreamBadgeProps) => {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
   const handlePlay = () => {
-    navigate(`${baseUrl}?id=${matchId}&stream=${encodeURIComponent(link.url)}`);
+    // Use simple link number instead of full URL
+    navigate(`${baseUrl}?id=${matchId}&link=${linkNumber}`);
   };
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -89,32 +91,23 @@ const StreamBadge = ({ link, baseUrl, matchId }: StreamBadgeProps) => {
     try {
       await navigator.clipboard.writeText(link.url);
       setCopied(true);
-      toast({ title: "URL Copied!", description: link.label });
+      toast({ title: "URL Copied!", description: `Link ${linkNumber}: ${link.label}` });
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast({ title: "Copy Failed", variant: "destructive" });
     }
   };
 
-  // Short label for badge
-  const shortLabel = link.label
-    .replace(' (IN)', '')
-    .replace(' (BD)', '')
-    .replace(' (WW)', '')
-    .replace('FanCode', 'FC')
-    .replace('Primary', 'Primary');
-
   return (
     <div className="inline-flex items-center gap-0.5 group">
       <Badge
         className={cn(
-          "cursor-pointer transition-all text-xs px-2 py-1 rounded-l-md rounded-r-none",
+          "cursor-pointer transition-all text-xs px-2.5 py-1 rounded-l-md rounded-r-none font-medium",
           getRegionBadgeStyle(link.region)
         )}
         onClick={handlePlay}
       >
-        {shortLabel}
-        {link.region && ` (${link.region})`}
+        {linkNumber}. {link.label}
       </Badge>
       <Button
         variant="ghost"
@@ -139,11 +132,10 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
   const formattedTime = formatTime(match.startTime);
   const isLive = match.status.toLowerCase() === 'live' || match.status.toLowerCase() === 'started';
   
-  // Play first available stream
+  // Play first available stream (link=1)
   const handleWatchNow = () => {
     if (hasStream) {
-      const firstStream = match.streamLinks[0];
-      navigate(`${baseUrl}?id=${match.matchId}&stream=${encodeURIComponent(firstStream.url)}`);
+      navigate(`${baseUrl}?id=${match.matchId}&link=1`);
     }
   };
 
@@ -232,6 +224,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
                 link={link}
                 baseUrl={baseUrl}
                 matchId={match.matchId}
+                linkNumber={index + 1}
               />
             ))}
             {match.streamLinks.length > 5 && (

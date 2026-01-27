@@ -51,7 +51,7 @@ const LiveSourceWatch = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const matchId = searchParams.get('id') || '';
-  const streamUrl = searchParams.get('stream') || '';
+  const linkNumber = parseInt(searchParams.get('link') || '1', 10); // 1-based link number
 
   const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('');
   const [matchTitle, setMatchTitle] = useState<string>('');
@@ -131,19 +131,10 @@ const LiveSourceWatch = () => {
     init();
   }, [slug]);
 
-  // Fetch stream URL
+  // Fetch stream URL using link number
   const fetchStream = useCallback(async () => {
-    // If stream URL is provided directly, use it
-    if (streamUrl) {
-      setCurrentStreamUrl(decodeURIComponent(streamUrl));
-      setMatchTitle('Live Stream');
-      setIsLoading(false);
-      return;
-    }
-
-    // Otherwise fetch from source (fallback)
     if (!matchId || !slug) {
-      setError("No stream URL provided");
+      setError("No match ID provided");
       setIsLoading(false);
       return;
     }
@@ -177,8 +168,11 @@ const LiveSourceWatch = () => {
           setMatchTitle(match.title || match.name || 'Live Match');
           const links = extractStreamLinks(match);
           
-          if (links.length > 0) {
-            setCurrentStreamUrl(links[0].url);
+          // Use link number (1-based) to select the stream
+          const linkIndex = Math.max(0, Math.min(linkNumber - 1, links.length - 1));
+          
+          if (links.length > 0 && links[linkIndex]) {
+            setCurrentStreamUrl(links[linkIndex].url);
             setIsLoading(false);
             return;
           }
@@ -193,7 +187,7 @@ const LiveSourceWatch = () => {
     }
     
     setIsLoading(false);
-  }, [matchId, slug, streamUrl]);
+  }, [matchId, slug, linkNumber]);
 
   useEffect(() => {
     if (iframeAccess?.isAllowed) {
