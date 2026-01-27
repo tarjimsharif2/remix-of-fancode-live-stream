@@ -130,6 +130,7 @@ export type Database = {
           display_order: number | null
           id: string
           is_active: boolean
+          link_prefixes: Json | null
           logo_url: string | null
           name: string
           slug: string
@@ -143,6 +144,7 @@ export type Database = {
           display_order?: number | null
           id?: string
           is_active?: boolean
+          link_prefixes?: Json | null
           logo_url?: string | null
           name: string
           slug: string
@@ -156,6 +158,7 @@ export type Database = {
           display_order?: number | null
           id?: string
           is_active?: boolean
+          link_prefixes?: Json | null
           logo_url?: string | null
           name?: string
           slug?: string
