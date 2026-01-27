@@ -1,10 +1,22 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { ShieldX } from "lucide-react";
+import { ShieldX, RefreshCw, Settings2, ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { UniversalPlayer } from "@/components/players/UniversalPlayer";
-import { PlayerType } from "@/types/playerTypes";
-import { StreamLink, extractStreamLinks } from "@/utils/streamExtractor";
+import { ClapprPlayer } from "@/components/players/ClapprPlayer";
+import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
+import { IframePlayer } from "@/components/players/IframePlayer";
+import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
+import { extractStreamLinks } from "@/utils/streamExtractor";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 // Check if running inside an iframe from allowed domain
 const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
@@ -49,27 +61,28 @@ const LiveSourceWatch = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const matchId = searchParams.get('id') || '';
+  const streamUrl = searchParams.get('stream') || '';
 
-  const [streamLinks, setStreamLinks] = useState<StreamLink[]>([]);
+  const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('');
   const [matchTitle, setMatchTitle] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
-  const [defaultPlayer, setDefaultPlayer] = useState<PlayerType>('clappr');
+  const [playerType, setPlayerType] = useState<PlayerType>('clappr');
   const [iframeWrapperUrl, setIframeWrapperUrl] = useState<string>('');
+  const [showControls, setShowControls] = useState(true);
+  const [playerKey, setPlayerKey] = useState(0);
 
   // Check iframe access and load settings
   useEffect(() => {
     const init = async () => {
       try {
-        // Check auth
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setIframeAccess({ isAllowed: true, reason: '' });
           setIsCheckingAccess(false);
         } else {
-          // Check embed setting
           const { data: embedSetting } = await supabase
             .from("app_settings")
             .select("value")
@@ -95,7 +108,7 @@ const LiveSourceWatch = () => {
           .maybeSingle();
 
         if (playerSetting?.value) {
-          setDefaultPlayer(playerSetting.value as PlayerType);
+          setPlayerType(playerSetting.value as PlayerType);
         }
 
         const { data: wrapperSetting } = await supabase
@@ -117,10 +130,19 @@ const LiveSourceWatch = () => {
     init();
   }, []);
 
-  // Fetch stream URLs
+  // Fetch stream URL - either from query param or from source
   const fetchStream = useCallback(async () => {
+    // If stream URL is provided directly in query params, use it
+    if (streamUrl) {
+      setCurrentStreamUrl(decodeURIComponent(streamUrl));
+      setMatchTitle('Live Stream');
+      setIsLoading(false);
+      return;
+    }
+
+    // Otherwise fetch from source (fallback/legacy behavior)
     if (!matchId || !slug) {
-      setError("No match ID or source provided");
+      setError("No stream URL or match ID provided");
       setIsLoading(false);
       return;
     }
@@ -128,7 +150,6 @@ const LiveSourceWatch = () => {
     setIsLoading(true);
     
     try {
-      // Get source URL
       const { data: sourceData, error: sourceError } = await supabase
         .from("json_sources")
         .select("url")
@@ -154,11 +175,10 @@ const LiveSourceWatch = () => {
         if (match) {
           setMatchTitle(match.title || match.name || match.match_title || 'Live Match');
           
-          // Extract all stream links
           const links = extractStreamLinks(match);
           
           if (links.length > 0) {
-            setStreamLinks(links);
+            setCurrentStreamUrl(links[0].url);
             setIsLoading(false);
             return;
           }
@@ -173,7 +193,7 @@ const LiveSourceWatch = () => {
     }
     
     setIsLoading(false);
-  }, [matchId, slug]);
+  }, [matchId, slug, streamUrl]);
 
   useEffect(() => {
     if (iframeAccess?.isAllowed) {
@@ -181,7 +201,35 @@ const LiveSourceWatch = () => {
     }
   }, [fetchStream, iframeAccess]);
 
-  // Checking access
+  // Auto-hide controls
+  useEffect(() => {
+    if (!showControls) return;
+    const timer = setTimeout(() => setShowControls(false), 4000);
+    return () => clearTimeout(timer);
+  }, [showControls]);
+
+  const handleRetry = () => {
+    setPlayerKey(prev => prev + 1);
+  };
+
+  const renderPlayer = () => {
+    if (!currentStreamUrl) return null;
+
+    switch (playerType) {
+      case 'clappr':
+        return <ClapprPlayer key={playerKey} streamUrl={currentStreamUrl} />;
+      case 'hlsjs':
+        return <HlsJsPlayer key={playerKey} streamUrl={currentStreamUrl} title={matchTitle} />;
+      case 'iframe':
+        return <IframePlayer key={playerKey} streamUrl={currentStreamUrl} wrapperUrl={iframeWrapperUrl} title={matchTitle} />;
+      case 'native':
+        return <video key={playerKey} src={currentStreamUrl} className="w-full h-full" controls autoPlay playsInline />;
+      default:
+        return <ClapprPlayer key={playerKey} streamUrl={currentStreamUrl} />;
+    }
+  };
+
+  // Loading states
   if (isCheckingAccess) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -190,7 +238,6 @@ const LiveSourceWatch = () => {
     );
   }
 
-  // Access denied
   if (iframeAccess && !iframeAccess.isAllowed) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center text-center p-6">
@@ -203,7 +250,6 @@ const LiveSourceWatch = () => {
     );
   }
 
-  // Loading
   if (isLoading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -212,7 +258,6 @@ const LiveSourceWatch = () => {
     );
   }
 
-  // Error
   if (error) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center text-center p-6">
@@ -224,13 +269,81 @@ const LiveSourceWatch = () => {
   }
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-black">
-      <UniversalPlayer
-        streamLinks={streamLinks}
-        title={matchTitle}
-        defaultPlayer={defaultPlayer}
-        iframeWrapperUrl={iframeWrapperUrl}
-      />
+    <div 
+      className="fixed inset-0 w-screen h-screen bg-black"
+      onMouseMove={() => setShowControls(true)}
+      onTouchStart={() => setShowControls(true)}
+    >
+      {/* Player */}
+      {renderPlayer()}
+
+      {/* Minimal Control Bar */}
+      <div
+        className={cn(
+          "absolute top-0 left-0 right-0 z-50 p-2 sm:p-3",
+          "bg-gradient-to-b from-black/70 to-transparent",
+          "transition-all duration-300",
+          showControls ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
+        )}
+      >
+        <div className="flex items-center justify-between gap-2">
+          {/* Retry Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRetry}
+            className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 w-9 p-0 rounded-lg backdrop-blur-sm"
+            title="Retry stream"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+
+          {/* Player Type Selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 px-3 rounded-lg backdrop-blur-sm gap-2"
+              >
+                <Settings2 className="w-4 h-4" />
+                <span className="hidden sm:inline text-sm">{getPlayerConfig(playerType).label}</span>
+                <ChevronDown className="w-4 h-4 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent 
+              align="end" 
+              className="w-56 bg-zinc-900/95 backdrop-blur-lg border-white/10 shadow-2xl"
+              sideOffset={8}
+            >
+              <DropdownMenuLabel className="text-white/60 flex items-center gap-2">
+                <Settings2 className="w-4 h-4" />
+                Player Engine
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-white/10" />
+              {PLAYER_CONFIGS.map((config) => (
+                <DropdownMenuItem
+                  key={config.type}
+                  onClick={() => setPlayerType(config.type)}
+                  className={cn(
+                    "text-white cursor-pointer rounded-md mx-1 my-0.5",
+                    "focus:bg-white/10 hover:bg-white/10",
+                    playerType === config.type && "bg-primary/20"
+                  )}
+                >
+                  <div className="flex flex-col">
+                    <span className="flex items-center gap-2">
+                      <span>{config.icon}</span>
+                      {config.label}
+                    </span>
+                    <span className="text-xs text-white/50">{config.description}</span>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
     </div>
   );
 };
