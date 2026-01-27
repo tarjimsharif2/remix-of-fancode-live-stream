@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, Clock, Tv, Radio, Copy, ExternalLink, ChevronDown, ChevronUp, Check, Globe, Zap } from "lucide-react";
+import { Play, Clock, Tv, Radio, Copy, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ const formatTime = (timeStr: string): string => {
 const getStatusColor = (status: string): string => {
   const statusLower = status.toLowerCase();
   if (statusLower === 'live' || statusLower === 'started') {
-    return 'bg-red-500 text-white animate-pulse';
+    return 'bg-red-500 text-white';
   }
   if (statusLower === 'upcoming' || statusLower === 'not_started') {
     return 'bg-blue-500 text-white';
@@ -57,142 +57,102 @@ const getStatusDisplay = (status: string): string => {
   return status.toUpperCase();
 };
 
-const getRegionStyle = (region?: string) => {
+const getRegionBadgeStyle = (region?: string): string => {
   switch (region?.toUpperCase()) {
     case 'BD':
-      return { bg: 'bg-green-600', text: 'text-green-100', icon: '🇧🇩' };
+      return 'bg-green-600 hover:bg-green-700 text-white';
     case 'IN':
-      return { bg: 'bg-orange-600', text: 'text-orange-100', icon: '🇮🇳' };
+      return 'bg-orange-600 hover:bg-orange-700 text-white';
     case 'WW':
-      return { bg: 'bg-blue-600', text: 'text-blue-100', icon: '🌍' };
+      return 'bg-blue-600 hover:bg-blue-700 text-white';
     default:
-      return null;
+      return 'bg-zinc-700 hover:bg-zinc-600 text-white';
   }
 };
 
-interface StreamLinkItemProps {
+interface StreamBadgeProps {
   link: StreamLink;
   baseUrl: string;
   matchId: string;
-  index: number;
 }
 
-const StreamLinkItem = ({ link, baseUrl, matchId, index }: StreamLinkItemProps) => {
+const StreamBadge = ({ link, baseUrl, matchId }: StreamBadgeProps) => {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
-  const regionStyle = getRegionStyle(link.region);
 
-  const handlePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    // Navigate with stream URL encoded
+  const handlePlay = () => {
     navigate(`${baseUrl}?id=${matchId}&stream=${encodeURIComponent(link.url)}`);
   };
 
-  const handleCopyUrl = async (e: React.MouseEvent) => {
+  const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(link.url);
       setCopied(true);
-      toast({
-        title: "URL Copied!",
-        description: "M3U8 link copied to clipboard",
-      });
+      toast({ title: "URL Copied!", description: link.label });
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast({
-        title: "Copy Failed",
-        description: "Could not copy URL",
-        variant: "destructive",
-      });
+      toast({ title: "Copy Failed", variant: "destructive" });
     }
   };
 
-  const isPrimary = link.label.toLowerCase().includes('primary');
-  const isDAI = link.label.toLowerCase().includes('dai');
+  // Short label for badge
+  const shortLabel = link.label
+    .replace(' (IN)', '')
+    .replace(' (BD)', '')
+    .replace(' (WW)', '')
+    .replace('FanCode', 'FC')
+    .replace('Primary', 'Primary');
 
   return (
-    <div 
-      className={cn(
-        "flex items-center justify-between gap-2 p-2.5 rounded-lg",
-        "bg-muted/50 hover:bg-muted transition-colors",
-        "border border-transparent hover:border-border"
-      )}
-    >
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        {isPrimary ? (
-          <Zap className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-        ) : isDAI ? (
-          <Globe className="w-4 h-4 text-blue-400 flex-shrink-0" />
-        ) : (
-          <Radio className="w-4 h-4 text-green-500 flex-shrink-0" />
+    <div className="inline-flex items-center gap-0.5 group">
+      <Badge
+        className={cn(
+          "cursor-pointer transition-all text-xs px-2 py-1 rounded-l-md rounded-r-none",
+          getRegionBadgeStyle(link.region)
         )}
-        <span className="text-sm font-medium truncate">{link.label}</span>
-        {regionStyle && (
-          <Badge className={cn("text-[10px] px-1.5 py-0 flex-shrink-0", regionStyle.bg, regionStyle.text)}>
-            {regionStyle.icon} {link.region}
-          </Badge>
+        onClick={handlePlay}
+      >
+        {shortLabel}
+        {link.region && ` (${link.region})`}
+      </Badge>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleCopy}
+        className={cn(
+          "h-6 w-6 p-0 rounded-l-none rounded-r-md",
+          "bg-zinc-800 hover:bg-zinc-700 text-white/70 hover:text-white"
         )}
-        {link.quality && (
-          <Badge variant="outline" className="text-[10px] px-1 py-0 flex-shrink-0">
-            {link.quality}
-          </Badge>
-        )}
-      </div>
-      
-      <div className="flex items-center gap-1 flex-shrink-0">
-        {/* Copy URL Button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleCopyUrl}
-          className="h-8 w-8 p-0 hover:bg-primary/20"
-          title="Copy M3U8 URL"
-        >
-          {copied ? (
-            <Check className="w-4 h-4 text-green-500" />
-          ) : (
-            <Copy className="w-4 h-4" />
-          )}
-        </Button>
-        
-        {/* Play Button */}
-        <Button
-          variant="default"
-          size="sm"
-          onClick={handlePlay}
-          className="h-8 px-3 gap-1.5"
-        >
-          <Play className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Play</span>
-        </Button>
-      </div>
+        title="Copy M3U8 URL"
+      >
+        {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      </Button>
     </div>
   );
 };
 
 export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: DynamicMatchCardProps) => {
-  const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
   const streamCount = match.streamLinks?.length || 0;
   const hasStream = streamCount > 0;
   const formattedTime = formatTime(match.startTime);
+  const isLive = match.status.toLowerCase() === 'live' || match.status.toLowerCase() === 'started';
   
-  const handleCardClick = () => {
+  // Play first available stream
+  const handleWatchNow = () => {
     if (hasStream) {
-      setExpanded(!expanded);
+      const firstStream = match.streamLinks[0];
+      navigate(`${baseUrl}?id=${match.matchId}&stream=${encodeURIComponent(firstStream.url)}`);
     }
   };
 
   return (
-    <Card 
-      className={cn(
-        "group overflow-hidden transition-all duration-300",
-        "bg-card border-border/50",
-        hasStream && "hover:border-primary/50 cursor-pointer",
-        expanded && "ring-2 ring-primary/30",
-        !hasStream && "opacity-70"
-      )}
-      onClick={handleCardClick}
-    >
+    <Card className={cn(
+      "group overflow-hidden transition-all duration-300",
+      "bg-card border-border/50 hover:border-primary/30",
+      !hasStream && "opacity-70"
+    )}>
       {/* Thumbnail */}
       {match.thumbnail && (
         <div className="relative aspect-video overflow-hidden bg-muted">
@@ -204,18 +164,17 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
               e.currentTarget.style.display = 'none';
             }}
           />
-          {/* Status Badge Overlay */}
+          {/* Status Badge */}
           <Badge className={cn(
             "absolute top-2 left-2",
-            getStatusColor(match.status)
+            getStatusColor(match.status),
+            isLive && "animate-pulse"
           )}>
-            {(match.status.toLowerCase() === 'live' || match.status.toLowerCase() === 'started') && (
-              <span className="w-2 h-2 rounded-full bg-white mr-1.5 animate-pulse" />
-            )}
+            {isLive && <span className="w-2 h-2 rounded-full bg-white mr-1.5" />}
             {getStatusDisplay(match.status)}
           </Badge>
           
-          {/* Stream Count Badge */}
+          {/* Stream Count */}
           {hasStream && (
             <Badge className="absolute top-2 right-2 bg-green-600/90 text-white backdrop-blur-sm">
               <Radio className="w-3 h-3 mr-1" />
@@ -227,7 +186,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
       
       <CardContent className="p-4 space-y-3">
         {/* Title */}
-        <h3 className="font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
+        <h3 className="font-semibold text-foreground line-clamp-2">
           {match.title}
         </h3>
         
@@ -247,56 +206,53 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
             </span>
           )}
         </div>
-        
+
         {/* No thumbnail - show status inline */}
         {!match.thumbnail && (
           <div className="flex gap-2">
-            <Badge className={cn("w-fit", getStatusColor(match.status))}>
+            <Badge className={cn("w-fit", getStatusColor(match.status), isLive && "animate-pulse")}>
+              {isLive && <span className="w-2 h-2 rounded-full bg-white mr-1.5" />}
               {getStatusDisplay(match.status)}
             </Badge>
             {hasStream && (
               <Badge className="bg-green-600 text-white">
                 <Radio className="w-3 h-3 mr-1" />
-                {streamCount} Link{streamCount > 1 ? 's' : ''}
+                {streamCount}
               </Badge>
             )}
           </div>
         )}
         
-        {/* Expand/Collapse Button */}
+        {/* Stream Link Badges - FanCode Style */}
         {hasStream && (
-          <div className={cn(
-            "flex items-center justify-between pt-2 border-t border-border/50",
-            "text-sm font-medium text-primary"
-          )}>
-            <span className="flex items-center gap-2">
-              <Radio className="w-4 h-4" />
-              {expanded ? "Hide Streams" : "Select Stream"}
-            </span>
-            {expanded ? (
-              <ChevronUp className="w-4 h-4" />
-            ) : (
-              <ChevronDown className="w-4 h-4" />
-            )}
-          </div>
-        )}
-
-        {/* Stream Links - Expanded View */}
-        {expanded && hasStream && (
-          <div 
-            className="space-y-2 pt-2 animate-fade-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {match.streamLinks.map((link, index) => (
-              <StreamLinkItem
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {match.streamLinks.slice(0, 5).map((link, index) => (
+              <StreamBadge
                 key={index}
                 link={link}
                 baseUrl={baseUrl}
                 matchId={match.matchId}
-                index={index}
               />
             ))}
+            {match.streamLinks.length > 5 && (
+              <Badge variant="outline" className="text-xs">
+                +{match.streamLinks.length - 5}
+              </Badge>
+            )}
           </div>
+        )}
+
+        {/* Watch Now Button */}
+        {hasStream && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleWatchNow}
+            className="w-full justify-start text-primary hover:text-primary hover:bg-primary/10 p-0 h-auto"
+          >
+            <Play className="w-4 h-4 mr-2" />
+            Watch Now
+          </Button>
         )}
 
         {/* No Stream Message */}
@@ -307,7 +263,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
           </div>
         )}
         
-        {/* Raw Data (Debug mode) */}
+        {/* Raw Data (Debug) */}
         {showRawData && (
           <details className="text-xs" onClick={(e) => e.stopPropagation()}>
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">

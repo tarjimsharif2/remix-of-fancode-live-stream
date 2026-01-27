@@ -125,6 +125,7 @@ export type Database = {
       json_sources: {
         Row: {
           created_at: string
+          default_player: string | null
           description: string | null
           display_order: number | null
           id: string
@@ -137,6 +138,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_player?: string | null
           description?: string | null
           display_order?: number | null
           id?: string
@@ -149,6 +151,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_player?: string | null
           description?: string | null
           display_order?: number | null
           id?: string
