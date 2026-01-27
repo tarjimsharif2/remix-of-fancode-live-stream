@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Play, Clock, Tv, Calendar } from "lucide-react";
+import { Play, Clock, Tv, Radio } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MappedMatch } from "@/utils/jsonFieldMapper";
@@ -34,22 +34,29 @@ const formatTime = (timeStr: string): string => {
 };
 
 const getStatusColor = (status: string): string => {
-  switch (status.toLowerCase()) {
-    case 'live':
-      return 'bg-red-500 text-white animate-pulse';
-    case 'upcoming':
-      return 'bg-blue-500 text-white';
-    case 'ended':
-    case 'finished':
-    case 'completed':
-      return 'bg-gray-500 text-white';
-    default:
-      return 'bg-primary text-primary-foreground';
+  const statusLower = status.toLowerCase();
+  if (statusLower === 'live' || statusLower === 'started') {
+    return 'bg-red-500 text-white animate-pulse';
   }
+  if (statusLower === 'upcoming' || statusLower === 'not_started') {
+    return 'bg-blue-500 text-white';
+  }
+  if (statusLower === 'ended' || statusLower === 'finished' || statusLower === 'completed') {
+    return 'bg-gray-500 text-white';
+  }
+  return 'bg-primary text-primary-foreground';
+};
+
+const getStatusDisplay = (status: string): string => {
+  const statusLower = status.toLowerCase();
+  if (statusLower === 'started') return 'LIVE';
+  if (statusLower === 'not_started') return 'UPCOMING';
+  return status.toUpperCase();
 };
 
 export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: DynamicMatchCardProps) => {
-  const hasStream = match.streamLinks && match.streamLinks.length > 0;
+  const streamCount = match.streamLinks?.length || 0;
+  const hasStream = streamCount > 0;
   const formattedTime = formatTime(match.startTime);
   
   return (
@@ -57,7 +64,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
       <Card className={cn(
         "group overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl",
         "bg-card border-border/50 hover:border-primary/50",
-        !hasStream && "opacity-60"
+        !hasStream && "opacity-70"
       )}>
         {/* Thumbnail */}
         {match.thumbnail && (
@@ -75,11 +82,19 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
               "absolute top-2 left-2",
               getStatusColor(match.status)
             )}>
-              {match.status.toLowerCase() === 'live' && (
+              {(match.status.toLowerCase() === 'live' || match.status.toLowerCase() === 'started') && (
                 <span className="w-2 h-2 rounded-full bg-white mr-1.5 animate-pulse" />
               )}
-              {match.status.toUpperCase()}
+              {getStatusDisplay(match.status)}
             </Badge>
+            
+            {/* Stream Count Badge */}
+            {hasStream && (
+              <Badge className="absolute top-2 right-2 bg-green-600 text-white">
+                <Radio className="w-3 h-3 mr-1" />
+                {streamCount} Link{streamCount > 1 ? 's' : ''}
+              </Badge>
+            )}
           </div>
         )}
         
@@ -108,6 +123,26 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
             )}
           </div>
           
+          {/* Stream Links Preview */}
+          {hasStream && match.streamLinks.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {match.streamLinks.slice(0, 4).map((link, idx) => (
+                <Badge 
+                  key={idx} 
+                  variant="secondary" 
+                  className="text-[10px] px-1.5 py-0.5"
+                >
+                  {link.label}
+                </Badge>
+              ))}
+              {match.streamLinks.length > 4 && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
+                  +{match.streamLinks.length - 4} more
+                </Badge>
+              )}
+            </div>
+          )}
+          
           {/* Description */}
           {match.description && (
             <p className="text-xs text-muted-foreground line-clamp-2">
@@ -117,9 +152,17 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
           
           {/* No thumbnail - show status inline */}
           {!match.thumbnail && (
-            <Badge className={cn("w-fit", getStatusColor(match.status))}>
-              {match.status.toUpperCase()}
-            </Badge>
+            <div className="flex gap-2">
+              <Badge className={cn("w-fit", getStatusColor(match.status))}>
+                {getStatusDisplay(match.status)}
+              </Badge>
+              {hasStream && (
+                <Badge className="bg-green-600 text-white">
+                  <Radio className="w-3 h-3 mr-1" />
+                  {streamCount} Link{streamCount > 1 ? 's' : ''}
+                </Badge>
+              )}
+            </div>
           )}
           
           {/* Play Button */}
@@ -128,7 +171,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
             hasStream ? "text-primary" : "text-muted-foreground"
           )}>
             <Play className="w-4 h-4" />
-            {hasStream ? "Watch Now" : "Stream Unavailable"}
+            {hasStream ? `Watch Now` : "Stream Unavailable"}
           </div>
           
           {/* Raw Data (Debug mode) */}
