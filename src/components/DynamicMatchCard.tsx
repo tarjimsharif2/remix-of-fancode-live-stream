@@ -142,8 +142,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
   return (
     <Card className={cn(
       "group overflow-hidden transition-all duration-300",
-      "bg-card border-border/50 hover:border-primary/30",
-      !hasStream && "opacity-70"
+      "bg-card border-border/50 hover:border-primary/30"
     )}>
       {/* Thumbnail */}
       {match.thumbnail && (
@@ -235,26 +234,22 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
           </div>
         )}
 
-        {/* Watch Now Button */}
-        {hasStream && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleWatchNow}
-            className="w-full justify-start text-primary hover:text-primary hover:bg-primary/10 p-0 h-auto"
-          >
-            <Play className="w-4 h-4 mr-2" />
-            Watch Now
-          </Button>
-        )}
-
-        {/* No Stream Message */}
-        {!hasStream && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Play className="w-4 h-4" />
-            Stream Unavailable
-          </div>
-        )}
+        {/* Watch Now Button - always visible */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleWatchNow}
+          disabled={!hasStream}
+          className={cn(
+            "w-full justify-start p-0 h-auto",
+            hasStream 
+              ? "text-primary hover:text-primary hover:bg-primary/10" 
+              : "text-muted-foreground cursor-not-allowed"
+          )}
+        >
+          <Play className="w-4 h-4 mr-2" />
+          {hasStream ? 'Watch Now' : 'Stream Unavailable'}
+        </Button>
         
         {/* Raw Data (Debug) */}
         {showRawData && (

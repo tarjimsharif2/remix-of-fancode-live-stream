@@ -32,9 +32,15 @@ export const useJsonSources = () => {
   }, [fetchSources]);
 
   const addSource = async (source: Omit<JsonSource, "id" | "created_at" | "updated_at">) => {
+    // Convert to database-compatible format
+    const dbSource = {
+      ...source,
+      link_prefixes: source.link_prefixes as Record<string, unknown> | undefined,
+    };
+    
     const { data, error } = await supabase
       .from("json_sources")
-      .insert([source])
+      .insert([dbSource as any])
       .select()
       .single();
 
@@ -44,9 +50,15 @@ export const useJsonSources = () => {
   };
 
   const updateSource = async (id: string, updates: Partial<JsonSource>) => {
+    // Convert to database-compatible format  
+    const dbUpdates = {
+      ...updates,
+      link_prefixes: updates.link_prefixes as Record<string, unknown> | undefined,
+    };
+    
     const { error } = await supabase
       .from("json_sources")
-      .update(updates)
+      .update(dbUpdates as any)
       .eq("id", id);
 
     if (error) throw error;
