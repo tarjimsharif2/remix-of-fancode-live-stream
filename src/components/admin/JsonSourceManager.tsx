@@ -12,15 +12,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { useJsonSources } from "@/hooks/useJsonSources";
 import { PLAYER_CONFIGS, PlayerType } from "@/types/playerTypes";
+import { LinkConfig } from "@/types/jsonSource";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+
+interface EditingLinkConfig {
+  position: number;
+  prefix: string;
+  player: PlayerType | '';
+}
 
 export const JsonSourceManager = () => {
   const { sources, loading, addSource, updateSource, deleteSource, refetch } = useJsonSources();
@@ -28,7 +30,7 @@ export const JsonSourceManager = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedPrefixId, setExpandedPrefixId] = useState<string | null>(null);
-  const [editingPrefixes, setEditingPrefixes] = useState<{ position: number; prefix: string }[]>([]);
+  const [editingPrefixes, setEditingPrefixes] = useState<EditingLinkConfig[]>([]);
   
   const [newSource, setNewSource] = useState({
     name: "",
@@ -103,7 +105,7 @@ export const JsonSourceManager = () => {
     }
   };
 
-  const handlePlayerChange = async (id: string, player: PlayerType) => {
+  const handleSourcePlayerChange = async (id: string, player: PlayerType) => {
     try {
       await updateSource(id, { default_player: player });
       toast.success("Player updated");
@@ -128,19 +130,28 @@ export const JsonSourceManager = () => {
     return config ? `${config.icon} ${config.label}` : type;
   };
 
-  // Link Prefix Management
-  const togglePrefixExpand = (sourceId: string, currentPrefixes: Record<string, string> | null) => {
+  // Link Config Management (prefix + player per link)
+  const togglePrefixExpand = (sourceId: string, currentPrefixes: Record<string, unknown> | null) => {
     if (expandedPrefixId === sourceId) {
       setExpandedPrefixId(null);
       setEditingPrefixes([]);
     } else {
       setExpandedPrefixId(sourceId);
-      // Convert object to array
-      const prefixArray = currentPrefixes
-        ? Object.entries(currentPrefixes).map(([pos, prefix]) => ({
-            position: parseInt(pos, 10),
-            prefix: prefix as string,
-          })).sort((a, b) => a.position - b.position)
+      // Convert object to array, handling both legacy string and new LinkConfig format
+      const prefixArray: EditingLinkConfig[] = currentPrefixes
+        ? Object.entries(currentPrefixes).map(([pos, config]): EditingLinkConfig => {
+            if (typeof config === 'string') {
+              // Legacy format: just prefix string
+              return { position: parseInt(pos, 10), prefix: config, player: '' };
+            }
+            // New format: LinkConfig object
+            const obj = config as Record<string, unknown>;
+            return {
+              position: parseInt(pos, 10),
+              prefix: (typeof obj?.prefix === 'string' ? obj.prefix : '') || '',
+              player: ((typeof obj?.player === 'string' ? obj.player : '') || '') as PlayerType | '',
+            };
+          }).sort((a, b) => a.position - b.position)
         : [];
       setEditingPrefixes(prefixArray);
     }
@@ -150,7 +161,7 @@ export const JsonSourceManager = () => {
     const nextPos = editingPrefixes.length > 0
       ? Math.max(...editingPrefixes.map(p => p.position)) + 1
       : 1;
-    setEditingPrefixes([...editingPrefixes, { position: nextPos, prefix: '' }]);
+    setEditingPrefixes([...editingPrefixes, { position: nextPos, prefix: '', player: '' }]);
   };
 
   const handleRemovePrefixEntry = (position: number) => {
@@ -163,6 +174,12 @@ export const JsonSourceManager = () => {
     ));
   };
 
+  const handleLinkPlayerChange = (position: number, newPlayer: PlayerType | '') => {
+    setEditingPrefixes(editingPrefixes.map(p =>
+      p.position === position ? { ...p, player: newPlayer } : p
+    ));
+  };
+
   const handlePrefixPositionChange = (oldPos: number, newPos: number) => {
     if (newPos < 1) return;
     setEditingPrefixes(editingPrefixes.map(p =>
@@ -172,23 +189,27 @@ export const JsonSourceManager = () => {
 
   const handleSavePrefixes = async (sourceId: string) => {
     try {
-      // Convert array to object
-      const prefixObj: Record<string, string> = {};
+      // Convert array to new LinkConfig object format
+      const configObj: Record<string, LinkConfig> = {};
       editingPrefixes.forEach(p => {
-        if (p.prefix.trim()) {
-          prefixObj[p.position.toString()] = p.prefix.trim();
+        // Only add if there's a prefix OR player set
+        if (p.prefix.trim() || p.player) {
+          configObj[p.position.toString()] = {
+            ...(p.prefix.trim() && { prefix: p.prefix.trim() }),
+            ...(p.player && { player: p.player as PlayerType }),
+          };
         }
       });
 
-      await updateSource(sourceId, { link_prefixes: prefixObj });
-      toast.success("Link prefixes saved");
+      await updateSource(sourceId, { link_prefixes: configObj });
+      toast.success("Link settings saved");
       setExpandedPrefixId(null);
     } catch (err: any) {
-      toast.error(err.message || "Failed to save prefixes");
+      toast.error(err.message || "Failed to save settings");
     }
   };
 
-  const getPrefixCount = (prefixes: Record<string, string> | null) => {
+  const getLinkConfigCount = (prefixes: Record<string, string | LinkConfig> | null) => {
     if (!prefixes) return 0;
     return Object.keys(prefixes).length;
   };
@@ -396,10 +417,10 @@ export const JsonSourceManager = () => {
                         <Badge variant="outline" className="text-xs">
                           {getPlayerLabel(source.default_player || 'clappr')}
                         </Badge>
-                        {getPrefixCount(source.link_prefixes) > 0 && (
+                        {getLinkConfigCount(source.link_prefixes) > 0 && (
                           <Badge variant="secondary" className="text-xs">
                             <Link2 className="w-3 h-3 mr-1" />
-                            {getPrefixCount(source.link_prefixes)} prefix
+                            {getLinkConfigCount(source.link_prefixes)} link config
                           </Badge>
                         )}
                       </div>
@@ -426,7 +447,7 @@ export const JsonSourceManager = () => {
                       {/* Quick Player Selector */}
                       <Select
                         value={source.default_player || 'clappr'}
-                        onValueChange={(value) => handlePlayerChange(source.id, value as PlayerType)}
+                        onValueChange={(value) => handleSourcePlayerChange(source.id, value as PlayerType)}
                       >
                         <SelectTrigger className="w-28 h-8 text-xs">
                           <SelectValue />
@@ -466,25 +487,25 @@ export const JsonSourceManager = () => {
                     </div>
                   </div>
 
-                  {/* Collapsible Link Prefixes */}
+                  {/* Collapsible Link Settings (Prefix + Player) */}
                   {expandedPrefixId === source.id && (
                     <div className="bg-muted/50 rounded-lg p-4 space-y-3 border">
                       <div className="flex items-center gap-2">
                         <Link2 className="w-4 h-4" />
-                        <Label className="font-medium">Link Proxy Prefixes</Label>
+                        <Label className="font-medium">Per-Link Settings</Label>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Set proxy URL for each link position (1, 2, 3...). Stream URL will be appended.
+                        Configure proxy prefix and player type for each link position (1, 2, 3...).
                       </p>
 
                       {editingPrefixes.length === 0 ? (
-                        <p className="text-sm text-muted-foreground py-2">No prefixes configured.</p>
+                        <p className="text-sm text-muted-foreground py-2">No link settings configured.</p>
                       ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {editingPrefixes.map((p) => (
-                            <div key={p.position} className="flex items-center gap-2">
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs text-muted-foreground">Link</span>
+                            <div key={p.position} className="flex flex-col md:flex-row md:items-center gap-2 p-2 bg-background/50 rounded border">
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="text-xs text-muted-foreground font-medium">Link</span>
                                 <Input
                                   type="number"
                                   min={1}
@@ -493,16 +514,36 @@ export const JsonSourceManager = () => {
                                   className="w-14 h-8 text-center text-xs"
                                 />
                               </div>
-                              <Input
-                                placeholder="https://proxy.example.com/?url="
-                                value={p.prefix}
-                                onChange={(e) => handlePrefixChange(p.position, e.target.value)}
-                                className="flex-1 h-8 text-xs"
-                              />
+                              <div className="flex-1 flex flex-col md:flex-row gap-2">
+                                <Input
+                                  placeholder="Proxy prefix (optional)"
+                                  value={p.prefix}
+                                  onChange={(e) => handlePrefixChange(p.position, e.target.value)}
+                                  className="flex-1 h-8 text-xs"
+                                />
+                                <Select
+                                  value={p.player || 'default'}
+                                  onValueChange={(v) => handleLinkPlayerChange(p.position, v === 'default' ? '' : v as PlayerType)}
+                                >
+                                  <SelectTrigger className="w-full md:w-32 h-8 text-xs">
+                                    <SelectValue placeholder="Player" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="default">
+                                      <span className="text-muted-foreground">Default</span>
+                                    </SelectItem>
+                                    {PLAYER_CONFIGS.map((config) => (
+                                      <SelectItem key={config.type} value={config.type}>
+                                        {config.icon} {config.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-destructive"
+                                className="h-8 w-8 text-destructive shrink-0"
                                 onClick={() => handleRemovePrefixEntry(p.position)}
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -519,7 +560,7 @@ export const JsonSourceManager = () => {
                         </Button>
                         <Button size="sm" onClick={() => handleSavePrefixes(source.id)}>
                           <Check className="w-3 h-3 mr-1" />
-                          Save Prefixes
+                          Save
                         </Button>
                         <Button
                           variant="ghost"

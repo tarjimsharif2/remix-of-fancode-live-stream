@@ -6,6 +6,7 @@ import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
 import { PlayerType } from "@/types/playerTypes";
+import { getLinkConfig, LinkConfig } from "@/types/jsonSource";
 import { extractStreamLinks } from "@/utils/streamExtractor";
 
 // Check if running inside an iframe from allowed domain
@@ -60,8 +61,9 @@ const LiveSourceWatch = () => {
   const [iframeAccess, setIframeAccess] = useState<{ isAllowed: boolean; reason: string } | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [playerType, setPlayerType] = useState<PlayerType>('clappr');
+  const [defaultPlayerType, setDefaultPlayerType] = useState<PlayerType>('clappr');
   const [iframeWrapperUrl, setIframeWrapperUrl] = useState<string>('');
-  const [sourceLinkPrefixes, setSourceLinkPrefixes] = useState<Record<string, string>>({});
+  const [sourceLinkPrefixes, setSourceLinkPrefixes] = useState<Record<string, unknown>>({});
 
   // Check iframe access and load settings
   useEffect(() => {
@@ -89,7 +91,7 @@ const LiveSourceWatch = () => {
           setIsCheckingAccess(false);
         }
 
-        // Load source-specific player setting first, then fall back to global
+        // Load source-specific default player first, then fall back to global
         if (slug) {
           const { data: sourceData } = await supabase
             .from("json_sources")
@@ -98,6 +100,7 @@ const LiveSourceWatch = () => {
             .maybeSingle();
 
           if (sourceData?.default_player) {
+            setDefaultPlayerType(sourceData.default_player as PlayerType);
             setPlayerType(sourceData.default_player as PlayerType);
           } else {
             // Fallback to global setting
@@ -108,6 +111,7 @@ const LiveSourceWatch = () => {
               .maybeSingle();
 
             if (playerSetting?.value) {
+              setDefaultPlayerType(playerSetting.value as PlayerType);
               setPlayerType(playerSetting.value as PlayerType);
             }
           }
@@ -155,9 +159,9 @@ const LiveSourceWatch = () => {
         throw new Error("Source not found");
       }
 
-      // Store prefixes from source
-      const prefixes = (sourceData.link_prefixes as Record<string, string>) || {};
-      setSourceLinkPrefixes(prefixes);
+      // Store link configs from source (handles both legacy string and new LinkConfig format)
+      const linkConfigs = (sourceData.link_prefixes as Record<string, unknown>) || {};
+      setSourceLinkPrefixes(linkConfigs);
 
       const { data, error: fnError } = await supabase.functions.invoke('fetch-json-source', {
         body: { url: sourceData.url },
@@ -180,10 +184,19 @@ const LiveSourceWatch = () => {
           if (links.length > 0 && links[linkIndex]) {
             let streamUrl = links[linkIndex].url;
             
-            // Apply prefix from source if configured for this link position
-            const prefix = prefixes[linkNumber.toString()];
-            if (prefix) {
-              streamUrl = prefix + encodeURIComponent(streamUrl);
+            // Get link-specific config (prefix + player)
+            const linkConfig = getLinkConfig(linkConfigs, linkNumber);
+            
+            // Apply prefix if configured
+            if (linkConfig.prefix) {
+              streamUrl = linkConfig.prefix + encodeURIComponent(streamUrl);
+            }
+            
+            // Apply link-specific player if configured, otherwise use source default
+            if (linkConfig.player) {
+              setPlayerType(linkConfig.player);
+            } else {
+              setPlayerType(defaultPlayerType);
             }
             
             setCurrentStreamUrl(streamUrl);
