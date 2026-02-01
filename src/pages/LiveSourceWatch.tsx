@@ -171,25 +171,40 @@ const LiveSourceWatch = () => {
       
       if (data?.success && data.matches) {
         const match = data.matches.find((m: any) => 
-          m.match_id?.toString() === matchId || m.id?.toString() === matchId
+          m.match_id?.toString() === matchId || 
+          m.id?.toString() === matchId ||
+          m.channel_id?.toString() === matchId ||
+          m.stream_id?.toString() === matchId
         );
         
         if (match) {
-          setMatchTitle(match.title || match.name || 'Live Match');
+          setMatchTitle(match.title || match.name || match.channel_name || 'Live Match');
           const links = extractStreamLinks(match);
+          
+          console.log('Extracted links:', links);
           
           // Use link number (1-based) to select the stream
           const linkIndex = Math.max(0, Math.min(linkNumber - 1, links.length - 1));
           
           if (links.length > 0 && links[linkIndex]) {
-            let streamUrl = links[linkIndex].url;
+            const selectedLink = links[linkIndex];
+            let streamUrl = selectedLink.url;
             
             // Get link-specific config (prefix + player)
             const linkConfig = getLinkConfig(linkConfigs, linkNumber);
             
-            // Apply prefix if configured
-            if (linkConfig.prefix) {
-              streamUrl = linkConfig.prefix + encodeURIComponent(streamUrl);
+            // If link has referer/origin, use stream-proxy automatically
+            if (selectedLink.referer || selectedLink.origin) {
+              const proxyBaseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stream-proxy`;
+              const proxyParams = new URLSearchParams();
+              proxyParams.set('url', streamUrl);
+              if (selectedLink.referer) proxyParams.set('referer', selectedLink.referer);
+              if (selectedLink.origin) proxyParams.set('origin', selectedLink.origin);
+              if (selectedLink.userAgent) proxyParams.set('userAgent', selectedLink.userAgent);
+              streamUrl = `${proxyBaseUrl}?${proxyParams.toString()}`;
+            } else if (linkConfig.prefix) {
+              // Apply configured prefix if no auto-proxy needed
+              streamUrl = linkConfig.prefix + encodeURIComponent(selectedLink.url);
             }
             
             // Apply link-specific player if configured, otherwise use source default
@@ -199,6 +214,7 @@ const LiveSourceWatch = () => {
               setPlayerType(defaultPlayerType);
             }
             
+            console.log('Final stream URL:', streamUrl);
             setCurrentStreamUrl(streamUrl);
             setIsLoading(false);
             return;
@@ -214,7 +230,7 @@ const LiveSourceWatch = () => {
     }
     
     setIsLoading(false);
-  }, [matchId, slug, linkNumber]);
+  }, [matchId, slug, linkNumber, defaultPlayerType]);
 
   useEffect(() => {
     if (iframeAccess?.isAllowed) {

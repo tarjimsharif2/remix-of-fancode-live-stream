@@ -10,28 +10,37 @@ export interface StreamLink {
   quality?: string;
   region?: string;
   type?: string;
+  // Header fields for proxying
+  referer?: string;
+  origin?: string;
+  userAgent?: string;
 }
 
-// Common field names for stream URLs
+// Common field names for stream URLs - ordered by priority
 const STREAM_FIELDS = [
+  // Direct link fields (most common in simple JSON)
+  'link', 'url', 'src', 'source',
   // Primary/Main URLs
   'Primary_Playback_URL', 'primary_playback_url',
   'adfree_url', 'adFreeUrl', 'adfree',
   'dai_url', 'daiUrl', 'dai',
   'dai_google_cdn', 'daiGoogleCdn',
   'stream_url', 'streamUrl', 'stream',
-  'url', 'link', 'src', 'source',
   'hls_url', 'hlsUrl', 'hls',
-  'm3u8', 'm3u8_url',
+  'm3u8', 'm3u8_url', 'm3u8Url',
   'video_url', 'videoUrl', 'video',
   'play_url', 'playUrl', 'play',
   'live_url', 'liveUrl', 'live',
   'embed_url', 'embedUrl', 'embed',
   'iframe_url', 'iframeUrl', 'iframe',
+  'playback_url', 'playbackUrl', 'playback',
+  'media_url', 'mediaUrl', 'media',
+  'content_url', 'contentUrl',
   // CDN specific
   'fancode_cdn', 'fancode_bd_cdn', 'fancodeCdn',
   'cloudfront_cdn', 'cloudfrontCdn',
   'sony_cdn', 'sonyCdn',
+  'akamai_cdn', 'akamaiCdn',
 ];
 
 // Nested objects that might contain stream URLs
@@ -104,6 +113,11 @@ const detectRegion = (url: string, fieldName: string): string | undefined => {
 const extractFromObject = (obj: Record<string, any>, seenUrls: Set<string>): StreamLink[] => {
   const links: StreamLink[] = [];
   
+  // Get header values from the object (for proxy use)
+  const referer = obj.referer || obj.Referer || obj.referrer || obj.Referrer || '';
+  const origin = obj.origin || obj.Origin || '';
+  const userAgent = obj.user_agent || obj.userAgent || obj.User_Agent || '';
+  
   for (const field of STREAM_FIELDS) {
     const value = obj[field];
     if (isValidStreamUrl(value) && !seenUrls.has(value)) {
@@ -112,6 +126,9 @@ const extractFromObject = (obj: Record<string, any>, seenUrls: Set<string>): Str
         url: value,
         label: getLabelFromField(field),
         region: detectRegion(value, field),
+        referer: referer || undefined,
+        origin: origin || undefined,
+        userAgent: userAgent || undefined,
       });
     }
   }
