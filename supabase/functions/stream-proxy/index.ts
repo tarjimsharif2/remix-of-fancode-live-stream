@@ -138,11 +138,9 @@ serve(async (req) => {
       upstreamHeaders['Range'] = requestRange;
     }
 
-    // Some upstreams are strict about trailing slashes on referer.
-    const normalizedReferer = referer ? referer.replace(/\/$/, '') : '';
-
-    if (normalizedReferer) {
-      upstreamHeaders['Referer'] = normalizedReferer;
+    // Keep referer as-is - some CDNs (like Akamai) require exact referer format
+    if (referer) {
+      upstreamHeaders['Referer'] = referer;
     }
     if (origin) {
       upstreamHeaders['Origin'] = origin;
