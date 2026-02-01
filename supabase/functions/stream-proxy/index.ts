@@ -6,6 +6,16 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 
+// External proxy for geo-restricted streams (Bangladesh-based)
+const EXTERNAL_PROXY_BASE = 'https://tv.eplayhd.fun/proxy.php';
+
+// Domains that require external proxy (geo-restricted)
+const GEO_RESTRICTED_DOMAINS = [
+  'akamaized.net',
+  'tapmad',
+  'akamaicdn',
+];
+
 interface ProxyError {
   error: string;
   code: string;
@@ -20,6 +30,19 @@ function createErrorResponse(error: ProxyError, statusCode: number = 500): Respo
     status: statusCode,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+function isGeoRestricted(url: string): boolean {
+  return GEO_RESTRICTED_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
+}
+
+function buildExternalProxyUrl(streamUrl: string, referer: string, origin: string, userAgent: string): string {
+  const params = new URLSearchParams();
+  params.set('link', streamUrl);
+  if (referer) params.set('referer', referer);
+  if (origin) params.set('origin', origin);
+  if (userAgent) params.set('user_agent', userAgent);
+  return `${EXTERNAL_PROXY_BASE}?${params.toString()}`;
 }
 
 serve(async (req) => {
@@ -81,6 +104,7 @@ serve(async (req) => {
     const customUserAgent = url.searchParams.get('user_agent') || '';
     const customCookie = url.searchParams.get('cookie') || '';
     const customHeadersJson = url.searchParams.get('custom_headers') || '';
+    const useExternalProxy = url.searchParams.get('use_external_proxy') === 'true';
 
     // Validate required parameters
     if (!streamUrl) {
@@ -114,48 +138,66 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Build headers for the upstream request - keep minimal to avoid CDN rejection
+    // Determine if we should use external proxy
+    const shouldUseExternalProxy = useExternalProxy || isGeoRestricted(streamUrl);
+    
+    // Build headers for the upstream request
     const requestUa = req.headers.get('user-agent') || '';
     const requestRange = req.headers.get('range') || '';
+    const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-    // Start with minimal headers - only what's absolutely necessary
-    const upstreamHeaders: Record<string, string> = {
-      'User-Agent': customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-    };
+    let fetchUrl: string;
+    let upstreamHeaders: Record<string, string>;
+
+    if (shouldUseExternalProxy) {
+      // Use external proxy for geo-restricted content
+      fetchUrl = buildExternalProxyUrl(streamUrl, referer, origin, effectiveUserAgent);
+      upstreamHeaders = {
+        'User-Agent': effectiveUserAgent,
+      };
+      console.log(`[${new Date().toISOString()}] Using EXTERNAL PROXY for: ${streamUrl}`);
+      console.log(`External proxy URL: ${fetchUrl}`);
+    } else {
+      // Direct fetch
+      fetchUrl = streamUrl;
+      upstreamHeaders = {
+        'User-Agent': effectiveUserAgent,
+      };
+      
+      if (referer) {
+        upstreamHeaders['Referer'] = referer;
+      }
+      if (origin) {
+        upstreamHeaders['Origin'] = origin;
+      }
+      if (customCookie) {
+        upstreamHeaders['Cookie'] = customCookie;
+      }
+
+      // Parse and apply any additional custom headers
+      if (customHeadersJson) {
+        try {
+          const additionalHeaders = JSON.parse(customHeadersJson);
+          if (typeof additionalHeaders === 'object' && additionalHeaders !== null) {
+            for (const [key, value] of Object.entries(additionalHeaders)) {
+              if (typeof value === 'string') {
+                upstreamHeaders[key] = value;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse custom_headers JSON:', e);
+        }
+      }
+      
+      console.log(`[${new Date().toISOString()}] Proxying DIRECT: ${streamUrl}`);
+    }
 
     if (requestRange) {
       upstreamHeaders['Range'] = requestRange;
     }
 
-    // Keep referer as-is - some CDNs (like Akamai) require exact referer format
-    if (referer) {
-      upstreamHeaders['Referer'] = referer;
-    }
-    if (origin) {
-      upstreamHeaders['Origin'] = origin;
-    }
-    if (customCookie) {
-      upstreamHeaders['Cookie'] = customCookie;
-    }
-
-    // Parse and apply any additional custom headers
-    if (customHeadersJson) {
-      try {
-        const additionalHeaders = JSON.parse(customHeadersJson);
-        if (typeof additionalHeaders === 'object' && additionalHeaders !== null) {
-          for (const [key, value] of Object.entries(additionalHeaders)) {
-            if (typeof value === 'string') {
-              upstreamHeaders[key] = value;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to parse custom_headers JSON:', e);
-      }
-    }
-
-    console.log(`[${new Date().toISOString()}] Proxying: ${streamUrl}`);
-    console.log(`Headers: Referer=${referer || 'none'}, Origin=${origin || 'none'}, UA=${customUserAgent ? 'custom' : 'default'}, Cookie=${customCookie ? 'set' : 'none'}`);
+    console.log(`Headers: Referer=${referer || 'none'}, Origin=${origin || 'none'}, UA=${customUserAgent ? 'custom' : 'default'}, Cookie=${customCookie ? 'set' : 'none'}, ExternalProxy=${shouldUseExternalProxy}`);
 
     // Fetch the stream with timeout
     const controller = new AbortController();
@@ -163,7 +205,7 @@ serve(async (req) => {
 
     let response: Response;
     try {
-      response = await fetch(streamUrl, {
+      response = await fetch(fetchUrl, {
         headers: upstreamHeaders,
         signal: controller.signal,
       });
@@ -288,13 +330,14 @@ serve(async (req) => {
       const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').replace(/^http:/, 'https:');
       const proxyBaseUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
       
-      // Build query params to forward
+      // Build query params to forward - include external proxy flag if needed
       const forwardParams = new URLSearchParams();
       forwardParams.set('referer', referer);
       forwardParams.set('origin', origin);
       if (customUserAgent) forwardParams.set('user_agent', customUserAgent);
       if (customCookie) forwardParams.set('cookie', customCookie);
       if (customHeadersJson) forwardParams.set('custom_headers', customHeadersJson);
+      if (shouldUseExternalProxy) forwardParams.set('use_external_proxy', 'true');
       const forwardParamsStr = forwardParams.toString();
       
       const rewrittenManifest = text.split('\n').map(line => {
