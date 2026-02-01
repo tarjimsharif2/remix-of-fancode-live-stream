@@ -122,16 +122,10 @@ serve(async (req) => {
 
     const upstreamHeaders: Record<string, string> = {
       'User-Agent': customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      'Accept': requestAccept || 'application/vnd.apple.mpegurl,application/x-mpegURL,application/octet-stream,*/*',
+      'Accept': '*/*',
       'Accept-Language': requestAcceptLang || 'en-US,en;q=0.9',
       'Accept-Encoding': 'gzip, deflate, br',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
       'Connection': 'keep-alive',
-      // Common fetch metadata headers some CDNs check
-      'Sec-Fetch-Dest': 'empty',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Site': 'cross-site',
     };
 
     if (requestRange) {
