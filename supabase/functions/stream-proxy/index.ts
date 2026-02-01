@@ -114,18 +114,13 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Build headers for the upstream request (mimic a real browser as closely as possible)
+    // Build headers for the upstream request - keep minimal to avoid CDN rejection
     const requestUa = req.headers.get('user-agent') || '';
-    const requestAcceptLang = req.headers.get('accept-language') || '';
-    const requestAccept = req.headers.get('accept') || '';
     const requestRange = req.headers.get('range') || '';
 
+    // Start with minimal headers - only what's absolutely necessary
     const upstreamHeaders: Record<string, string> = {
       'User-Agent': customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      'Accept': '*/*',
-      'Accept-Language': requestAcceptLang || 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive',
     };
 
     if (requestRange) {
