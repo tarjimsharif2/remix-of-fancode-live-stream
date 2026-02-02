@@ -1,5 +1,3 @@
-import { PlayerType } from './playerTypes';
-
 export interface CustomChannel {
   id: string;
   name: string;
@@ -11,7 +9,6 @@ export interface CustomChannel {
   custom_user_agent: string | null;
   custom_cookie: string | null;
   custom_headers: Record<string, string>;
-  player_type: PlayerType;
   is_active: boolean;
   display_order: number;
   created_at: string;

@@ -85,7 +85,6 @@ export type Database = {
           is_active: boolean
           logo_url: string | null
           name: string
-          player_type: string | null
           stream_url: string
           updated_at: string
         }
@@ -102,7 +101,6 @@ export type Database = {
           is_active?: boolean
           logo_url?: string | null
           name: string
-          player_type?: string | null
           stream_url: string
           updated_at?: string
         }
@@ -119,7 +117,6 @@ export type Database = {
           is_active?: boolean
           logo_url?: string | null
           name?: string
-          player_type?: string | null
           stream_url?: string
           updated_at?: string
         }

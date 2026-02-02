@@ -39,23 +39,14 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Plus, Trash2, Edit, Tv, Settings2 } from "lucide-react";
 import { CustomChannel } from "@/types/customChannel";
-import { PlayerType, PLAYER_CONFIGS } from "@/types/playerTypes";
 
 interface ChannelForm {
   name: string;
   stream_url: string;
   logo_url: string;
   category: string;
-  player_type: PlayerType;
   custom_referer: string;
   custom_origin: string;
   custom_user_agent: string;
@@ -69,7 +60,6 @@ const defaultForm: ChannelForm = {
   stream_url: "",
   logo_url: "",
   category: "general",
-  player_type: "clappr",
   custom_referer: "",
   custom_origin: "",
   custom_user_agent: "",
@@ -118,7 +108,6 @@ export function CustomChannelManager() {
         stream_url: channel.stream_url,
         logo_url: channel.logo_url || "",
         category: channel.category || "general",
-        player_type: channel.player_type || "clappr",
         custom_referer: channel.custom_referer || "",
         custom_origin: channel.custom_origin || "",
         custom_user_agent: channel.custom_user_agent || "",
@@ -179,7 +168,6 @@ export function CustomChannelManager() {
       stream_url: form.stream_url.trim(),
       logo_url: form.logo_url.trim() || null,
       category: form.category.trim() || "general",
-      player_type: form.player_type,
       custom_referer: form.custom_referer.trim() || null,
       custom_origin: form.custom_origin.trim() || null,
       custom_user_agent: form.custom_user_agent.trim() || null,
@@ -272,7 +260,6 @@ export function CustomChannelManager() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Category</TableHead>
-                <TableHead>Player</TableHead>
                 <TableHead>Headers</TableHead>
                 <TableHead>Active</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -283,11 +270,6 @@ export function CustomChannelManager() {
                 <TableRow key={channel.id}>
                   <TableCell className="font-medium">{channel.name}</TableCell>
                   <TableCell className="capitalize">{channel.category}</TableCell>
-                  <TableCell>
-                    <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded capitalize">
-                      {channel.player_type || 'clappr'}
-                    </span>
-                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {channel.custom_referer && (
@@ -409,30 +391,6 @@ export function CustomChannelManager() {
                   placeholder="https://example.com/logo.png"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="player_type">Video Player</Label>
-                <Select
-                  value={form.player_type}
-                  onValueChange={(value) => setForm({ ...form, player_type: value as PlayerType })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select player" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PLAYER_CONFIGS.map((config) => (
-                      <SelectItem key={config.type} value={config.type}>
-                        <div className="flex items-center gap-2">
-                          <span>{config.icon}</span>
-                          <span>{config.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="display_order">Display Order</Label>
                 <Input
