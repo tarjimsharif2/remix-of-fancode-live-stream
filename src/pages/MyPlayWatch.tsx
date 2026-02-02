@@ -7,16 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
-import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-} from "@/components/ui/dropdown-menu";
-import { Settings2, ChevronDown, Check } from "lucide-react";
+import { PlayerType } from "@/types/playerTypes";
 import { cn } from "@/lib/utils";
 
 const MyPlayWatch = () => {
@@ -41,7 +32,6 @@ const MyPlayWatch = () => {
     }
 
     try {
-      // Fetch channel and wrapper URL in parallel
       const [channelRes, wrapperRes] = await Promise.all([
         supabase
           .from('custom_channels')
@@ -67,11 +57,8 @@ const MyPlayWatch = () => {
 
       const channelData = channelRes.data as CustomChannel;
       setChannel(channelData);
-      
-      // Set player type from channel settings
       setPlayerType(channelData.player_type || 'clappr');
       
-      // Set wrapper URL
       if (wrapperRes.data?.value) {
         setIframeWrapperUrl(wrapperRes.data.value);
       }
@@ -87,7 +74,6 @@ const MyPlayWatch = () => {
     fetchData();
   }, [fetchData]);
 
-  // Hide controls after inactivity
   useEffect(() => {
     if (!showControls) return;
     const timer = setTimeout(() => setShowControls(false), 4000);
@@ -102,12 +88,6 @@ const MyPlayWatch = () => {
     setPlayerKey(prev => prev + 1);
   };
 
-  const handlePlayerChange = (type: PlayerType) => {
-    setPlayerType(type);
-    setPlayerKey(prev => prev + 1);
-  };
-
-  // Build proxy URL for streams with custom headers
   const getProxyUrl = useCallback((url: string) => {
     if (!channel) return url;
     
@@ -127,7 +107,6 @@ const MyPlayWatch = () => {
     return proxyUrl.toString();
   }, [channel]);
 
-  // Check if we need proxy (has custom headers)
   const needsProxy = channel && (
     channel.custom_referer || 
     channel.custom_origin || 
@@ -136,7 +115,6 @@ const MyPlayWatch = () => {
     (channel.custom_headers && Object.keys(channel.custom_headers).length > 0)
   );
 
-  // Get the stream URL (proxied or direct)
   const streamUrl = channel ? (needsProxy ? getProxyUrl(channel.stream_url) : channel.stream_url) : '';
 
   const renderPlayer = () => {
@@ -206,7 +184,6 @@ const MyPlayWatch = () => {
       onMouseMove={handleShowControls}
       onTouchStart={handleShowControls}
     >
-      {/* Player */}
       <div className="w-full h-full">
         {renderPlayer()}
       </div>
@@ -221,7 +198,6 @@ const MyPlayWatch = () => {
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          {/* Left: Back + Title */}
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <Button
               variant="ghost"
@@ -239,71 +215,15 @@ const MyPlayWatch = () => {
             </div>
           </div>
 
-          {/* Right: Controls */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Retry */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleRetry}
-              className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 w-9 p-0 rounded-lg backdrop-blur-sm"
-              title="Retry stream"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </Button>
-
-            {/* Player Selector */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 px-3 rounded-lg backdrop-blur-sm gap-2"
-                >
-                  <Settings2 className="w-4 h-4" />
-                  <span className="hidden sm:inline text-sm">{getPlayerConfig(playerType).label}</span>
-                  <ChevronDown className="w-4 h-4 opacity-70" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent 
-                align="end" 
-                className="w-56 bg-zinc-900/95 backdrop-blur-lg border-white/10 shadow-2xl"
-                sideOffset={8}
-              >
-                <DropdownMenuLabel className="text-white/60 flex items-center gap-2">
-                  <Settings2 className="w-4 h-4" />
-                  Player Engine
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                {PLAYER_CONFIGS.map((config) => {
-                  const isSelected = playerType === config.type;
-                  return (
-                    <DropdownMenuItem
-                      key={config.type}
-                      onClick={() => handlePlayerChange(config.type)}
-                      className={cn(
-                        "text-white cursor-pointer rounded-md mx-1 my-0.5",
-                        "focus:bg-white/10 hover:bg-white/10",
-                        isSelected && "bg-primary/20"
-                      )}
-                    >
-                      <div className="flex items-center gap-3 w-full">
-                        {isSelected ? (
-                          <Check className="w-4 h-4 text-primary flex-shrink-0" />
-                        ) : (
-                          <span className="w-4 h-4 flex items-center justify-center opacity-60">{config.icon}</span>
-                        )}
-                        <div className="flex flex-col min-w-0">
-                          <span className={cn("font-medium", isSelected && "text-primary")}>{config.label}</span>
-                          <span className="text-xs text-white/50 truncate">{config.description}</span>
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRetry}
+            className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 w-9 p-0 rounded-lg backdrop-blur-sm"
+            title="Retry stream"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </Button>
         </div>
       </div>
     </div>
