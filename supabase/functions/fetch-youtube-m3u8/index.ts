@@ -3,28 +3,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-interface YouTubeFormat {
-  url: string;
-  format_id: string;
-  ext: string;
-  protocol?: string;
-  acodec?: string;
-  vcodec?: string;
-}
-
-interface YouTubeInfo {
-  formats?: YouTubeFormat[];
-  is_live?: boolean;
-  title?: string;
-  thumbnail?: string;
-}
-
 // Extract video ID from various YouTube URL formats
 function extractVideoId(url: string): string | null {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
   ];
   
   for (const pattern of patterns) {
@@ -34,129 +19,201 @@ function extractVideoId(url: string): string | null {
   return null;
 }
 
-// Use yt-dlp compatible API to get stream info
+// Try to get stream info from Invidious instances
+async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
+  const instances = [
+    'https://inv.nadeko.net',
+    'https://invidious.privacyredirect.com',
+    'https://invidious.protokolla.fi',
+    'https://iv.nboez.de',
+    'https://invidious.jing.rocks',
+    'https://yt.artemislena.eu',
+    'https://invidious.lunar.icu',
+    'https://inv.tux.pizza',
+    'https://invidious.privacydev.net',
+    'https://vid.puffyan.us',
+  ];
+
+  for (const instance of instances) {
+    try {
+      console.log(`Trying Invidious instance: ${instance}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(`${instance}/api/v1/videos/${videoId}`, {
+        headers: { 
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.log(`Instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        console.log(`Instance ${instance} returned non-JSON response`);
+        continue;
+      }
+
+      const data = await response.json();
+      
+      // Check for HLS URL directly
+      if (data.hlsUrl) {
+        console.log(`Got HLS URL from ${instance}`);
+        return { 
+          m3u8Url: data.hlsUrl, 
+          title: data.title,
+          thumbnail: data.videoThumbnails?.[0]?.url 
+        };
+      }
+
+      // For live streams, construct manifest URL
+      if (data.liveNow) {
+        const liveUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
+        console.log(`Constructed live HLS URL from ${instance}`);
+        return { 
+          m3u8Url: liveUrl,
+          title: data.title,
+          thumbnail: data.videoThumbnails?.[0]?.url 
+        };
+      }
+
+      // Look for adaptive formats
+      const adaptiveFormats = data.adaptiveFormats || [];
+      const hlsFormat = adaptiveFormats.find((f: any) => 
+        f.type?.includes('application/x-mpegURL') || 
+        f.container === 'hls' ||
+        f.url?.includes('.m3u8')
+      );
+
+      if (hlsFormat?.url) {
+        console.log(`Got adaptive HLS format from ${instance}`);
+        return { 
+          m3u8Url: hlsFormat.url,
+          title: data.title,
+          thumbnail: data.videoThumbnails?.[0]?.url 
+        };
+      }
+
+      // If video exists but no HLS, try manifest endpoint
+      if (data.videoId) {
+        const manifestUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
+        console.log(`Video found, trying manifest URL from ${instance}`);
+        return { 
+          m3u8Url: manifestUrl,
+          title: data.title,
+          thumbnail: data.videoThumbnails?.[0]?.url 
+        };
+      }
+
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes('aborted')) {
+        console.log(`Instance ${instance} timed out`);
+      } else {
+        console.log(`Instance ${instance} failed: ${errorMsg}`);
+      }
+      continue;
+    }
+  }
+
+  return { m3u8Url: null };
+}
+
+// Try Piped instances
+async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
+  const instances = [
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.r4fo.com',
+    'https://pipedapi.moomoo.me',
+    'https://pipedapi.syncpundit.io',
+    'https://api.piped.yt',
+  ];
+
+  for (const instance of instances) {
+    try {
+      console.log(`Trying Piped instance: ${instance}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(`${instance}/streams/${videoId}`, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.log(`Piped instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      
+      if (data.hls) {
+        console.log(`Got HLS URL from Piped ${instance}`);
+        return { 
+          m3u8Url: data.hls,
+          title: data.title,
+          thumbnail: data.thumbnailUrl 
+        };
+      }
+
+      // Look for livestream URL
+      if (data.livestream && data.videoStreams) {
+        const hlsStream = data.videoStreams.find((s: any) => 
+          s.format === 'HLS' || s.mimeType?.includes('mpegURL')
+        );
+        if (hlsStream?.url) {
+          console.log(`Got livestream HLS from Piped ${instance}`);
+          return { 
+            m3u8Url: hlsStream.url,
+            title: data.title,
+            thumbnail: data.thumbnailUrl 
+          };
+        }
+      }
+
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (errorMsg.includes('aborted')) {
+        console.log(`Piped instance ${instance} timed out`);
+      } else {
+        console.log(`Piped instance ${instance} failed: ${errorMsg}`);
+      }
+      continue;
+    }
+  }
+
+  return { m3u8Url: null };
+}
+
+// Main extraction function
 async function getYouTubeStreamInfo(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
-  try {
-    // Try cobalt.tools API first (free, no API key needed)
-    const cobaltResponse = await fetch('https://api.cobalt.tools/api/json', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        isAudioOnly: false,
-        aFormat: 'best',
-        vQuality: '1080',
-      }),
-    });
-
-    if (cobaltResponse.ok) {
-      const cobaltData = await cobaltResponse.json();
-      if (cobaltData.url) {
-        console.log('Got stream URL from cobalt:', cobaltData.url);
-        return { m3u8Url: cobaltData.url };
-      }
-    }
-  } catch (err) {
-    console.log('Cobalt API failed, trying alternative methods:', err);
+  // Try Invidious first (more reliable for live streams)
+  let result = await tryInvidiousInstances(videoId);
+  if (result.m3u8Url) {
+    return result;
   }
 
-  try {
-    // Try invidious API (multiple instances available)
-    const invidiousInstances = [
-      'https://vid.puffyan.us',
-      'https://invidious.snopyta.org',
-      'https://yewtu.be',
-      'https://invidious.kavin.rocks',
-    ];
-
-    for (const instance of invidiousInstances) {
-      try {
-        const response = await fetch(`${instance}/api/v1/videos/${videoId}`, {
-          headers: { 'Accept': 'application/json' },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          
-          // Look for HLS format
-          if (data.hlsUrl) {
-            console.log('Got HLS URL from invidious:', data.hlsUrl);
-            return { 
-              m3u8Url: data.hlsUrl, 
-              title: data.title,
-              thumbnail: data.videoThumbnails?.[0]?.url 
-            };
-          }
-
-          // Look for adaptive formats with m3u8
-          const adaptiveFormats = data.adaptiveFormats || [];
-          const hlsFormat = adaptiveFormats.find((f: any) => 
-            f.type?.includes('application/x-mpegURL') || 
-            f.url?.includes('.m3u8')
-          );
-
-          if (hlsFormat?.url) {
-            console.log('Got adaptive HLS format from invidious');
-            return { 
-              m3u8Url: hlsFormat.url,
-              title: data.title,
-              thumbnail: data.videoThumbnails?.[0]?.url 
-            };
-          }
-
-          // For live streams, construct HLS URL
-          if (data.liveNow) {
-            const liveUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
-            console.log('Constructed live HLS URL:', liveUrl);
-            return { 
-              m3u8Url: liveUrl,
-              title: data.title,
-              thumbnail: data.videoThumbnails?.[0]?.url 
-            };
-          }
-        }
-      } catch (instanceErr) {
-        console.log(`Invidious instance ${instance} failed:`, instanceErr);
-        continue;
-      }
-    }
-  } catch (err) {
-    console.log('All invidious instances failed:', err);
+  // Try Piped as fallback
+  result = await tryPipedInstances(videoId);
+  if (result.m3u8Url) {
+    return result;
   }
 
-  // Try piped API as fallback
-  try {
-    const pipedInstances = [
-      'https://pipedapi.kavin.rocks',
-      'https://api.piped.privacydev.net',
-    ];
-
-    for (const instance of pipedInstances) {
-      try {
-        const response = await fetch(`${instance}/streams/${videoId}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.hls) {
-            console.log('Got HLS URL from piped:', data.hls);
-            return { 
-              m3u8Url: data.hls,
-              title: data.title,
-              thumbnail: data.thumbnailUrl 
-            };
-          }
-        }
-      } catch (pipedErr) {
-        console.log(`Piped instance ${instance} failed:`, pipedErr);
-        continue;
-      }
-    }
-  } catch (err) {
-    console.log('All piped instances failed:', err);
-  }
-
+  console.log('All extraction methods failed');
   return { m3u8Url: null };
 }
 
@@ -191,7 +248,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Could not extract M3U8 URL. The stream may not be live or is unavailable.' 
+          error: 'Could not extract M3U8 URL. The stream may not be live, is age-restricted, or external APIs are temporarily unavailable. Please try again later.' 
         }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
