@@ -10,6 +10,7 @@ function extractVideoId(url: string): string | null {
     /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+    /[?&]v=([a-zA-Z0-9_-]{11})/,
   ];
   
   for (const pattern of patterns) {
@@ -19,19 +20,45 @@ function extractVideoId(url: string): string | null {
   return null;
 }
 
+// Verify if M3U8 URL is actually valid by checking response
+async function verifyM3u8Url(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(url, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Try to get stream info from Invidious instances
 async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
+  // Updated list with more reliable instances
   const instances = [
+    'https://invidious.fdn.fr',
+    'https://inv.tux.pizza',
+    'https://invidious.protokolla.fi',
+    'https://invidious.lunar.icu',
+    'https://invidious.privacydev.net',
+    'https://vid.puffyan.us',
+    'https://inv.pistasjis.net',
+    'https://invidious.slipfox.xyz',
+    'https://invidious.flokinet.to',
+    'https://iv.ggtyler.dev',
     'https://yewtu.be',
     'https://inv.nadeko.net',
     'https://invidious.nerdvpn.de',
-    'https://invidious.io.lol',
-    'https://invidious.perennialte.ch',
-    'https://invidious.einfachzocken.eu',
-    'https://iv.datura.network',
-    'https://invidious.projectsegfau.lt',
     'https://invidious.darkness.services',
-    'https://yt.drgnz.club',
   ];
 
   for (const instance of instances) {
@@ -39,7 +66,7 @@ async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string
       console.log(`Trying Invidious instance: ${instance}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       
       const response = await fetch(`${instance}/api/v1/videos/${videoId}`, {
         headers: { 
@@ -64,48 +91,65 @@ async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string
 
       const data = await response.json();
       
-      // Check for HLS URL directly
+      // Check for direct HLS URL
       if (data.hlsUrl) {
-        console.log(`Got HLS URL from ${instance}`);
-        return { 
-          m3u8Url: data.hlsUrl, 
-          title: data.title,
-          thumbnail: data.videoThumbnails?.[0]?.url 
-        };
+        console.log(`Got direct HLS URL from ${instance}`);
+        // Verify the URL works
+        const isValid = await verifyM3u8Url(data.hlsUrl);
+        if (isValid) {
+          return { 
+            m3u8Url: data.hlsUrl, 
+            title: data.title,
+            thumbnail: data.videoThumbnails?.[0]?.url 
+          };
+        }
+        console.log(`HLS URL from ${instance} failed verification`);
       }
 
-      // For live streams, construct manifest URL
-      if (data.liveNow) {
-        const liveUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
-        console.log(`Constructed live HLS URL from ${instance}`);
-        return { 
-          m3u8Url: liveUrl,
-          title: data.title,
-          thumbnail: data.videoThumbnails?.[0]?.url 
-        };
+      // For live streams, try different manifest URL patterns
+      if (data.liveNow || data.isLive) {
+        // Try different manifest URL formats
+        const manifestPatterns = [
+          `${instance}/api/manifest/hls_variant/${videoId}.m3u8`,
+          `${instance}/latest_version?id=${videoId}&itag=300`,
+          `${instance}/latest_version?id=${videoId}&itag=95`,
+        ];
+        
+        for (const manifestUrl of manifestPatterns) {
+          console.log(`Trying manifest URL: ${manifestUrl}`);
+          const isValid = await verifyM3u8Url(manifestUrl);
+          if (isValid) {
+            console.log(`Valid manifest found from ${instance}`);
+            return { 
+              m3u8Url: manifestUrl,
+              title: data.title,
+              thumbnail: data.videoThumbnails?.[0]?.url 
+            };
+          }
+        }
       }
 
-      // Look for adaptive formats
+      // Look for adaptive formats with HLS
       const adaptiveFormats = data.adaptiveFormats || [];
-      const hlsFormat = adaptiveFormats.find((f: any) => 
-        f.type?.includes('application/x-mpegURL') || 
-        f.container === 'hls' ||
-        f.url?.includes('.m3u8')
-      );
-
-      if (hlsFormat?.url) {
-        console.log(`Got adaptive HLS format from ${instance}`);
-        return { 
-          m3u8Url: hlsFormat.url,
-          title: data.title,
-          thumbnail: data.videoThumbnails?.[0]?.url 
-        };
+      for (const format of adaptiveFormats) {
+        if (format.type?.includes('mpegURL') || format.container === 'hls' || format.url?.includes('.m3u8')) {
+          const isValid = await verifyM3u8Url(format.url);
+          if (isValid) {
+            console.log(`Got valid adaptive HLS format from ${instance}`);
+            return { 
+              m3u8Url: format.url,
+              title: data.title,
+              thumbnail: data.videoThumbnails?.[0]?.url 
+            };
+          }
+        }
       }
 
-      // If video exists but no HLS, try manifest endpoint
+      // If video found but no valid HLS yet, try manifest endpoint anyway
       if (data.videoId) {
         const manifestUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
-        console.log(`Video found, trying manifest URL from ${instance}`);
+        console.log(`Trying manifest URL for existing video: ${manifestUrl}`);
+        // Don't verify, just return and let player try
         return { 
           m3u8Url: manifestUrl,
           title: data.title,
@@ -129,13 +173,16 @@ async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string
 
 // Try Piped instances
 async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
+  // Updated list with more reliable instances
   const instances = [
     'https://pipedapi.kavin.rocks',
-    'https://pipedapi.adminforge.de',
-    'https://pipedapi.darkness.services',
-    'https://pipedapi.drgns.space',
-    'https://api.piped.projectsegfau.lt',
-    'https://pipedapi.in.projectsegfau.lt',
+    'https://api.piped.privacydev.net',
+    'https://pipedapi.osphost.fi',
+    'https://pipedapi.tokhmi.xyz',
+    'https://pipedapi.moomoo.me',
+    'https://pipedapi.syncpundit.io',
+    'https://api.piped.yt',
+    'https://pipedapi.r4fo.com',
   ];
 
   for (const instance of instances) {
@@ -143,7 +190,7 @@ async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | n
       console.log(`Trying Piped instance: ${instance}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       
       const response = await fetch(`${instance}/streams/${videoId}`, {
         headers: {
@@ -162,8 +209,18 @@ async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | n
 
       const data = await response.json();
       
+      // Check for direct HLS URL
       if (data.hls) {
         console.log(`Got HLS URL from Piped ${instance}`);
+        const isValid = await verifyM3u8Url(data.hls);
+        if (isValid) {
+          return { 
+            m3u8Url: data.hls,
+            title: data.title,
+            thumbnail: data.thumbnailUrl 
+          };
+        }
+        // Return anyway, let the player try
         return { 
           m3u8Url: data.hls,
           title: data.title,
@@ -171,18 +228,18 @@ async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | n
         };
       }
 
-      // Look for livestream URL
-      if (data.livestream && data.videoStreams) {
-        const hlsStream = data.videoStreams.find((s: any) => 
-          s.format === 'HLS' || s.mimeType?.includes('mpegURL')
-        );
-        if (hlsStream?.url) {
-          console.log(`Got livestream HLS from Piped ${instance}`);
-          return { 
-            m3u8Url: hlsStream.url,
-            title: data.title,
-            thumbnail: data.thumbnailUrl 
-          };
+      // Look for livestream or HLS in video streams
+      if (data.livestream || data.videoStreams) {
+        const streams = data.videoStreams || [];
+        for (const stream of streams) {
+          if (stream.format === 'HLS' || stream.mimeType?.includes('mpegURL') || stream.url?.includes('.m3u8')) {
+            console.log(`Got HLS stream from Piped ${instance}`);
+            return { 
+              m3u8Url: stream.url,
+              title: data.title,
+              thumbnail: data.thumbnailUrl 
+            };
+          }
         }
       }
 
@@ -200,71 +257,85 @@ async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | n
   return { m3u8Url: null };
 }
 
-// Try YouTube oEmbed to get basic info then construct manifest
-async function tryYouTubeOEmbed(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
-  try {
-    console.log('Trying YouTube oEmbed approach...');
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      console.log(`YouTube oEmbed returned ${response.status}`);
-      return { m3u8Url: null };
+// Try Cobalt API for extraction
+async function tryCobaltApi(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
+  const cobaltInstances = [
+    'https://co.wuk.sh',
+    'https://cobalt.api.timelessnesses.me',
+  ];
+
+  for (const instance of cobaltInstances) {
+    try {
+      console.log(`Trying Cobalt instance: ${instance}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(`${instance}/api/json`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        body: JSON.stringify({
+          url: `https://www.youtube.com/watch?v=${videoId}`,
+          vQuality: 'max',
+          isAudioOnly: false,
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.log(`Cobalt instance ${instance} returned ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      
+      if (data.url && data.url.includes('.m3u8')) {
+        console.log(`Got M3U8 from Cobalt ${instance}`);
+        return { m3u8Url: data.url };
+      }
+
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.log(`Cobalt instance ${instance} failed: ${errorMsg}`);
+      continue;
     }
-    
-    const data = await response.json();
-    
-    // If we can get oEmbed data, try to use best available Invidious for manifest
-    const workingInstances = ['https://yewtu.be', 'https://invidious.nerdvpn.de', 'https://iv.datura.network'];
-    
-    for (const instance of workingInstances) {
-      const manifestUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
-      console.log(`Constructed manifest URL: ${manifestUrl}`);
-      return {
-        m3u8Url: manifestUrl,
-        title: data.title,
-        thumbnail: data.thumbnail_url
-      };
-    }
-    
-  } catch (err) {
-    console.log('YouTube oEmbed failed:', err instanceof Error ? err.message : String(err));
   }
-  
+
   return { m3u8Url: null };
 }
 
-// Main extraction function
+// Main extraction function with multiple fallbacks
 async function getYouTubeStreamInfo(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
-  // Try Piped first (often more reliable for HLS)
+  console.log(`Starting extraction for video ID: ${videoId}`);
+  
+  // Try Piped first (often better for live streams)
   let result = await tryPipedInstances(videoId);
   if (result.m3u8Url) {
+    console.log('Successfully got M3U8 from Piped');
     return result;
   }
 
   // Try Invidious
   result = await tryInvidiousInstances(videoId);
   if (result.m3u8Url) {
+    console.log('Successfully got M3U8 from Invidious');
     return result;
   }
 
-  // Try oEmbed approach as last resort
-  result = await tryYouTubeOEmbed(videoId);
+  // Try Cobalt as last resort
+  result = await tryCobaltApi(videoId);
   if (result.m3u8Url) {
+    console.log('Successfully got M3U8 from Cobalt');
     return result;
   }
 
-  console.log('All extraction methods failed');
+  console.log('All extraction methods failed for video:', videoId);
   return { m3u8Url: null };
 }
 
@@ -299,7 +370,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Could not extract M3U8 URL. The stream may not be live, is age-restricted, or external APIs are temporarily unavailable. Please try again later.' 
+          error: 'Could not extract M3U8 URL. The stream may be geo-restricted, age-restricted, or the video is not available for streaming. External extraction APIs may also be temporarily unavailable.' 
         }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

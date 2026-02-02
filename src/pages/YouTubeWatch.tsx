@@ -15,6 +15,15 @@ import {
 
 type PlayerType = "clappr" | "hlsjs";
 
+// Build proxied URL for M3U8 streams
+function buildProxiedUrl(m3u8Url: string): string {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const proxyUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
+  const params = new URLSearchParams();
+  params.set('url', m3u8Url);
+  return `${proxyUrl}?${params.toString()}`;
+}
+
 const YouTubeWatch = () => {
   const { streamId } = useParams<{ streamId: string }>();
   const navigate = useNavigate();
@@ -47,7 +56,7 @@ const YouTubeWatch = () => {
 
       const typedStream = streamData as YouTubeStream;
 
-      // Priority 1: Manual M3U8 URL
+      // Priority 1: Manual M3U8 URL (use directly, no proxy needed if it's a direct URL)
       if (typedStream.manual_m3u8) {
         console.log("Using manual M3U8 URL");
         setM3u8Url(typedStream.manual_m3u8);
@@ -62,8 +71,9 @@ const YouTubeWatch = () => {
         const diffMinutes = (now.getTime() - lastFetched.getTime()) / (1000 * 60);
 
         if (diffMinutes < 30) {
-          console.log("Using cached M3U8 URL");
-          setM3u8Url(typedStream.cached_m3u8);
+          console.log("Using cached M3U8 URL via proxy");
+          // Use proxy for cached URLs as they may be IP-locked
+          setM3u8Url(buildProxiedUrl(typedStream.cached_m3u8));
           setLoading(false);
           return;
         }
@@ -84,7 +94,9 @@ const YouTubeWatch = () => {
       if (m3u8Error) throw m3u8Error;
       if (!m3u8Data.success) throw new Error(m3u8Data.error || "Failed to extract M3U8");
 
-      setM3u8Url(m3u8Data.m3u8_url);
+      // Use proxy for fresh URLs as they may be IP-locked
+      console.log("Using fresh M3U8 URL via proxy");
+      setM3u8Url(buildProxiedUrl(m3u8Data.m3u8_url));
     } catch (err) {
       console.error("Error fetching stream:", err);
       setError(err instanceof Error ? err.message : "Failed to load stream");
