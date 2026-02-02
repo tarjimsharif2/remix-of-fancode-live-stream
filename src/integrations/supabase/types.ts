@@ -246,6 +246,7 @@ export type Database = {
           is_active: boolean
           last_fetched_at: string | null
           logo_url: string | null
+          manual_m3u8: string | null
           name: string
           updated_at: string
           youtube_url: string
@@ -259,6 +260,7 @@ export type Database = {
           is_active?: boolean
           last_fetched_at?: string | null
           logo_url?: string | null
+          manual_m3u8?: string | null
           name: string
           updated_at?: string
           youtube_url: string
@@ -272,6 +274,7 @@ export type Database = {
           is_active?: boolean
           last_fetched_at?: string | null
           logo_url?: string | null
+          manual_m3u8?: string | null
           name?: string
           updated_at?: string
           youtube_url?: string
