@@ -31,7 +31,13 @@ export function useYouTubeStreams() {
   }, []);
 
   const fetchM3u8 = useCallback(async (stream: YouTubeStream): Promise<string | null> => {
-    // Check if cached M3U8 is still valid (less than 30 minutes old)
+    // Priority 1: Manual M3U8 URL (always preferred if set)
+    if (stream.manual_m3u8) {
+      console.log('Using manual M3U8 URL');
+      return stream.manual_m3u8;
+    }
+
+    // Priority 2: Cached M3U8 (if still valid - less than 30 minutes old)
     if (stream.cached_m3u8 && stream.last_fetched_at) {
       const lastFetched = new Date(stream.last_fetched_at);
       const now = new Date();
@@ -43,7 +49,7 @@ export function useYouTubeStreams() {
       }
     }
 
-    // Fetch fresh M3U8
+    // Priority 3: Fetch fresh M3U8 from external APIs
     try {
       const { data, error } = await supabase.functions.invoke('fetch-youtube-m3u8', {
         body: { 

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Plus, Trash2, Edit2, Save, X, Youtube, RefreshCw, Play, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Edit2, Save, X, Youtube, RefreshCw, Play, ExternalLink, Link2 } from "lucide-react";
 import { YouTubeStream } from "@/types/youtubeStream";
 
 export const YouTubeStreamManager = () => {
@@ -17,6 +17,7 @@ export const YouTubeStreamManager = () => {
   const [formData, setFormData] = useState({
     name: "",
     youtube_url: "",
+    manual_m3u8: "",
     logo_url: "",
     category: "general",
     is_active: true,
@@ -50,6 +51,7 @@ export const YouTubeStreamManager = () => {
     setFormData({
       name: "",
       youtube_url: "",
+      manual_m3u8: "",
       logo_url: "",
       category: "general",
       is_active: true,
@@ -61,8 +63,13 @@ export const YouTubeStreamManager = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name.trim() || !formData.youtube_url.trim()) {
-      toast.error("Name and YouTube URL are required");
+    if (!formData.name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+
+    if (!formData.youtube_url.trim() && !formData.manual_m3u8.trim()) {
+      toast.error("Either YouTube URL or Manual M3U8 URL is required");
       return;
     }
 
@@ -73,6 +80,7 @@ export const YouTubeStreamManager = () => {
           .update({
             name: formData.name,
             youtube_url: formData.youtube_url,
+            manual_m3u8: formData.manual_m3u8 || null,
             logo_url: formData.logo_url || null,
             category: formData.category,
             is_active: formData.is_active,
@@ -87,7 +95,8 @@ export const YouTubeStreamManager = () => {
       } else {
         const { error } = await supabase.from("youtube_streams").insert({
           name: formData.name,
-          youtube_url: formData.youtube_url,
+          youtube_url: formData.youtube_url || "",
+          manual_m3u8: formData.manual_m3u8 || null,
           logo_url: formData.logo_url || null,
           category: formData.category,
           is_active: formData.is_active,
@@ -111,6 +120,7 @@ export const YouTubeStreamManager = () => {
     setFormData({
       name: stream.name,
       youtube_url: stream.youtube_url,
+      manual_m3u8: stream.manual_m3u8 || "",
       logo_url: stream.logo_url || "",
       category: stream.category || "general",
       is_active: stream.is_active,
@@ -137,6 +147,14 @@ export const YouTubeStreamManager = () => {
   };
 
   const handleTest = async (stream: YouTubeStream) => {
+    // If manual M3U8 is set, just show success
+    if (stream.manual_m3u8) {
+      toast.success("Manual M3U8 URL is configured!", {
+        description: `URL: ${stream.manual_m3u8.substring(0, 50)}...`,
+      });
+      return;
+    }
+
     setTestingId(stream.id);
     try {
       const { data, error } = await supabase.functions.invoke("fetch-youtube-m3u8", {
@@ -152,22 +170,26 @@ export const YouTubeStreamManager = () => {
         toast.success(`M3U8 extracted successfully!`, {
           description: `URL: ${data.m3u8_url?.substring(0, 50)}...`,
         });
-        fetchStreams(); // Refresh to show updated cache
+        fetchStreams();
       } else {
-        toast.error(data.error || "Failed to extract M3U8");
+        toast.error(data.error || "Failed to extract M3U8", {
+          description: "Consider adding Manual M3U8 URL instead",
+        });
       }
     } catch (err) {
       console.error("Error testing stream:", err);
-      toast.error("Failed to test stream extraction");
+      toast.error("Failed to test stream extraction", {
+        description: "External APIs may be unavailable. Try adding Manual M3U8 URL",
+      });
     } finally {
       setTestingId(null);
     }
   };
 
   const handleRefreshAll = async () => {
-    toast.info("Refreshing all stream URLs...");
+    toast.info("Refreshing streams with auto-extraction...");
     
-    for (const stream of streams.filter(s => s.is_active)) {
+    for (const stream of streams.filter(s => s.is_active && !s.manual_m3u8)) {
       try {
         await supabase.functions.invoke("fetch-youtube-m3u8", {
           body: { 
@@ -180,7 +202,7 @@ export const YouTubeStreamManager = () => {
       }
     }
 
-    toast.success("All streams refreshed");
+    toast.success("Refresh complete");
     fetchStreams();
   };
 
@@ -208,13 +230,32 @@ export const YouTubeStreamManager = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="youtube_url">YouTube URL *</Label>
+                <Label htmlFor="youtube_url">YouTube URL</Label>
                 <Input
                   id="youtube_url"
                   value={formData.youtube_url}
                   onChange={(e) => setFormData({ ...formData, youtube_url: e.target.value })}
                   placeholder="https://www.youtube.com/watch?v=... or /live/..."
                 />
+                <p className="text-xs text-muted-foreground">
+                  For auto-extraction (may fail if external APIs are down)
+                </p>
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="manual_m3u8" className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4" />
+                  Manual M3U8 URL (Recommended)
+                </Label>
+                <Input
+                  id="manual_m3u8"
+                  value={formData.manual_m3u8}
+                  onChange={(e) => setFormData({ ...formData, manual_m3u8: e.target.value })}
+                  placeholder="https://example.com/stream.m3u8"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Direct M3U8 link - always used if provided, bypasses auto-extraction
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -282,7 +323,7 @@ export const YouTubeStreamManager = () => {
           </CardTitle>
           <Button variant="outline" size="sm" onClick={handleRefreshAll} className="gap-2">
             <RefreshCw className="w-4 h-4" />
-            Refresh All
+            Refresh Auto
           </Button>
         </CardHeader>
         <CardContent>
@@ -318,11 +359,17 @@ export const YouTubeStreamManager = () => {
                     <div className="min-w-0 flex-1">
                       <p className="font-medium truncate">{stream.name}</p>
                       <p className="text-xs text-muted-foreground truncate">
-                        {stream.youtube_url}
+                        {stream.youtube_url || "No YouTube URL"}
                       </p>
-                      {stream.cached_m3u8 && (
+                      {stream.manual_m3u8 && (
+                        <p className="text-xs text-blue-500 mt-0.5 flex items-center gap-1">
+                          <Link2 className="w-3 h-3" />
+                          Manual M3U8 configured
+                        </p>
+                      )}
+                      {!stream.manual_m3u8 && stream.cached_m3u8 && (
                         <p className="text-xs text-green-500 mt-0.5">
-                          ✓ Cached {stream.last_fetched_at && `(${new Date(stream.last_fetched_at).toLocaleTimeString()})`}
+                          ✓ Auto-cached {stream.last_fetched_at && `(${new Date(stream.last_fetched_at).toLocaleTimeString()})`}
                         </p>
                       )}
                     </div>
@@ -348,13 +395,15 @@ export const YouTubeStreamManager = () => {
                       Test
                     </Button>
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => window.open(stream.youtube_url, '_blank')}
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </Button>
+                    {stream.youtube_url && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => window.open(stream.youtube_url, '_blank')}
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    )}
 
                     <Button
                       variant="ghost"
@@ -377,6 +426,24 @@ export const YouTubeStreamManager = () => {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Help Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">How to get M3U8 URLs</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground space-y-2">
+          <p>
+            <strong>Option 1 (Recommended):</strong> Use browser developer tools or extensions to extract M3U8 URLs from YouTube Live streams and paste them in the "Manual M3U8 URL" field.
+          </p>
+          <p>
+            <strong>Option 2:</strong> Add only the YouTube URL and rely on auto-extraction (may fail if external APIs are unavailable).
+          </p>
+          <p>
+            <strong>Tip:</strong> Use tools like "HLS Player" browser extension or network tab in DevTools to find .m3u8 URLs.
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -45,8 +45,17 @@ const YouTubeWatch = () => {
 
       setStream(streamData as YouTubeStream);
 
-      // Check if cached M3U8 is valid (less than 30 minutes old)
       const typedStream = streamData as YouTubeStream;
+
+      // Priority 1: Manual M3U8 URL
+      if (typedStream.manual_m3u8) {
+        console.log("Using manual M3U8 URL");
+        setM3u8Url(typedStream.manual_m3u8);
+        setLoading(false);
+        return;
+      }
+
+      // Priority 2: Cached M3U8 (if valid - less than 30 minutes old)
       if (typedStream.cached_m3u8 && typedStream.last_fetched_at) {
         const lastFetched = new Date(typedStream.last_fetched_at);
         const now = new Date();
@@ -60,7 +69,7 @@ const YouTubeWatch = () => {
         }
       }
 
-      // Fetch fresh M3U8
+      // Priority 3: Fetch fresh M3U8 from external APIs
       console.log("Fetching fresh M3U8 URL...");
       const { data: m3u8Data, error: m3u8Error } = await supabase.functions.invoke(
         "fetch-youtube-m3u8",
