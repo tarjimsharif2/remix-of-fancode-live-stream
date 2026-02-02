@@ -236,6 +236,48 @@ export type Database = {
         }
         Relationships: []
       }
+      youtube_streams: {
+        Row: {
+          cached_m3u8: string | null
+          category: string | null
+          created_at: string
+          display_order: number | null
+          id: string
+          is_active: boolean
+          last_fetched_at: string | null
+          logo_url: string | null
+          name: string
+          updated_at: string
+          youtube_url: string
+        }
+        Insert: {
+          cached_m3u8?: string | null
+          category?: string | null
+          created_at?: string
+          display_order?: number | null
+          id?: string
+          is_active?: boolean
+          last_fetched_at?: string | null
+          logo_url?: string | null
+          name: string
+          updated_at?: string
+          youtube_url: string
+        }
+        Update: {
+          cached_m3u8?: string | null
+          category?: string | null
+          created_at?: string
+          display_order?: number | null
+          id?: string
+          is_active?: boolean
+          last_fetched_at?: string | null
+          logo_url?: string | null
+          name?: string
+          updated_at?: string
+          youtube_url?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
