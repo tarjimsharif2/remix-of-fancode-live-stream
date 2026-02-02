@@ -14,6 +14,8 @@ import Playlist from "./pages/Playlist";
 import PlaylistWatch from "./pages/PlaylistWatch";
 import LiveSource from "./pages/LiveSource";
 import LiveSourceWatch from "./pages/LiveSourceWatch";
+import YouTube from "./pages/YouTube";
+import YouTubeWatch from "./pages/YouTubeWatch";
 import Admin from "./pages/Admin";
 import AdminAuth from "./pages/AdminAuth";
 import NotFound from "./pages/NotFound";
@@ -44,6 +46,9 @@ const App = () => (
             <Route path="/live/:slug/play-bd" element={<LiveSourceWatch />} />
             <Route path="/live/:slug/play-in" element={<LiveSourceWatch />} />
             <Route path="/live/:slug/play-ww" element={<LiveSourceWatch />} />
+            {/* YouTube Live */}
+            <Route path="/youtube" element={<YouTube />} />
+            <Route path="/youtube/watch/:streamId" element={<YouTubeWatch />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/admin/login" element={<AdminAuth />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

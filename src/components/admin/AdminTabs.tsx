@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   ListMusic, 
@@ -7,13 +6,14 @@ import {
   Globe, 
   FileJson, 
   Settings,
-  Database
+  Youtube
 } from "lucide-react";
 import { M3uPlaylistManager } from "./M3uPlaylistManager";
 import { CustomChannelManager } from "./CustomChannelManager";
 import { DomainManagement } from "./DomainManagement";
 import { JsonSourceManager } from "./JsonSourceManager";
 import { SettingsTab } from "./SettingsTab";
+import { YouTubeStreamManager } from "./YouTubeStreamManager";
 
 export const AdminTabs = () => {
   const [activeTab, setActiveTab] = useState("playlists");
@@ -23,35 +23,42 @@ export const AdminTabs = () => {
       <TabsList className="w-full flex flex-wrap h-auto gap-1 bg-muted/50 p-1.5 rounded-lg mb-6">
         <TabsTrigger 
           value="playlists" 
-          className="flex-1 min-w-[100px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
+          className="flex-1 min-w-[80px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
         >
           <ListMusic className="w-4 h-4" />
           <span className="hidden sm:inline">Playlists</span>
         </TabsTrigger>
         <TabsTrigger 
           value="channels" 
-          className="flex-1 min-w-[100px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
+          className="flex-1 min-w-[80px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
         >
           <Tv className="w-4 h-4" />
           <span className="hidden sm:inline">Channels</span>
         </TabsTrigger>
         <TabsTrigger 
+          value="youtube" 
+          className="flex-1 min-w-[80px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
+        >
+          <Youtube className="w-4 h-4" />
+          <span className="hidden sm:inline">YouTube</span>
+        </TabsTrigger>
+        <TabsTrigger 
           value="domains" 
-          className="flex-1 min-w-[100px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
+          className="flex-1 min-w-[80px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
         >
           <Globe className="w-4 h-4" />
           <span className="hidden sm:inline">Domains</span>
         </TabsTrigger>
         <TabsTrigger 
           value="sources" 
-          className="flex-1 min-w-[100px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
+          className="flex-1 min-w-[80px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
         >
           <FileJson className="w-4 h-4" />
           <span className="hidden sm:inline">Sources</span>
         </TabsTrigger>
         <TabsTrigger 
           value="settings" 
-          className="flex-1 min-w-[100px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
+          className="flex-1 min-w-[80px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground gap-2 py-2.5"
         >
           <Settings className="w-4 h-4" />
           <span className="hidden sm:inline">Settings</span>
@@ -64,6 +71,10 @@ export const AdminTabs = () => {
 
       <TabsContent value="channels" className="mt-0">
         <CustomChannelManager />
+      </TabsContent>
+
+      <TabsContent value="youtube" className="mt-0">
+        <YouTubeStreamManager />
       </TabsContent>
 
       <TabsContent value="domains" className="mt-0">

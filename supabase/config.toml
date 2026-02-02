@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.fetch-m3u-playlist]
 verify_jwt = false
+
+[functions.fetch-json-source]
+verify_jwt = false
+
+[functions.fetch-youtube-m3u8]
+verify_jwt = false
