@@ -22,16 +22,16 @@ function extractVideoId(url: string): string | null {
 // Try to get stream info from Invidious instances
 async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
   const instances = [
+    'https://yewtu.be',
     'https://inv.nadeko.net',
-    'https://invidious.privacyredirect.com',
-    'https://invidious.protokolla.fi',
-    'https://iv.nboez.de',
-    'https://invidious.jing.rocks',
-    'https://yt.artemislena.eu',
-    'https://invidious.lunar.icu',
-    'https://inv.tux.pizza',
-    'https://invidious.privacydev.net',
-    'https://vid.puffyan.us',
+    'https://invidious.nerdvpn.de',
+    'https://invidious.io.lol',
+    'https://invidious.perennialte.ch',
+    'https://invidious.einfachzocken.eu',
+    'https://iv.datura.network',
+    'https://invidious.projectsegfau.lt',
+    'https://invidious.darkness.services',
+    'https://yt.drgnz.club',
   ];
 
   for (const instance of instances) {
@@ -39,12 +39,12 @@ async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string
       console.log(`Trying Invidious instance: ${instance}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       
       const response = await fetch(`${instance}/api/v1/videos/${videoId}`, {
         headers: { 
           'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         },
         signal: controller.signal,
       });
@@ -131,10 +131,11 @@ async function tryInvidiousInstances(videoId: string): Promise<{ m3u8Url: string
 async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
   const instances = [
     'https://pipedapi.kavin.rocks',
-    'https://pipedapi.r4fo.com',
-    'https://pipedapi.moomoo.me',
-    'https://pipedapi.syncpundit.io',
-    'https://api.piped.yt',
+    'https://pipedapi.adminforge.de',
+    'https://pipedapi.darkness.services',
+    'https://pipedapi.drgns.space',
+    'https://api.piped.projectsegfau.lt',
+    'https://pipedapi.in.projectsegfau.lt',
   ];
 
   for (const instance of instances) {
@@ -142,12 +143,12 @@ async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | n
       console.log(`Trying Piped instance: ${instance}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       
       const response = await fetch(`${instance}/streams/${videoId}`, {
         headers: {
           'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         },
         signal: controller.signal,
       });
@@ -199,16 +200,66 @@ async function tryPipedInstances(videoId: string): Promise<{ m3u8Url: string | n
   return { m3u8Url: null };
 }
 
+// Try YouTube oEmbed to get basic info then construct manifest
+async function tryYouTubeOEmbed(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
+  try {
+    console.log('Trying YouTube oEmbed approach...');
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      console.log(`YouTube oEmbed returned ${response.status}`);
+      return { m3u8Url: null };
+    }
+    
+    const data = await response.json();
+    
+    // If we can get oEmbed data, try to use best available Invidious for manifest
+    const workingInstances = ['https://yewtu.be', 'https://invidious.nerdvpn.de', 'https://iv.datura.network'];
+    
+    for (const instance of workingInstances) {
+      const manifestUrl = `${instance}/api/manifest/hls_variant/${videoId}.m3u8`;
+      console.log(`Constructed manifest URL: ${manifestUrl}`);
+      return {
+        m3u8Url: manifestUrl,
+        title: data.title,
+        thumbnail: data.thumbnail_url
+      };
+    }
+    
+  } catch (err) {
+    console.log('YouTube oEmbed failed:', err instanceof Error ? err.message : String(err));
+  }
+  
+  return { m3u8Url: null };
+}
+
 // Main extraction function
 async function getYouTubeStreamInfo(videoId: string): Promise<{ m3u8Url: string | null; title?: string; thumbnail?: string }> {
-  // Try Invidious first (more reliable for live streams)
-  let result = await tryInvidiousInstances(videoId);
+  // Try Piped first (often more reliable for HLS)
+  let result = await tryPipedInstances(videoId);
   if (result.m3u8Url) {
     return result;
   }
 
-  // Try Piped as fallback
-  result = await tryPipedInstances(videoId);
+  // Try Invidious
+  result = await tryInvidiousInstances(videoId);
+  if (result.m3u8Url) {
+    return result;
+  }
+
+  // Try oEmbed approach as last resort
+  result = await tryYouTubeOEmbed(videoId);
   if (result.m3u8Url) {
     return result;
   }
