@@ -14,6 +14,7 @@ const GEO_RESTRICTED_DOMAINS = [
   'akamaized.net',
   'tapmad',
   'akamaicdn',
+  'aynascope.net',
 ];
 
 interface ProxyError {
