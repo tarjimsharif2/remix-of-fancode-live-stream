@@ -161,41 +161,17 @@ export const HlsJsPlayer = ({
     }
   }, [streamUrl, getProxyUrl, onError, onReady]);
 
-  // Handle streamUrl changes - try to update source seamlessly without full reinit
-  const prevStreamUrlRef = useRef<string>('');
-  
   useEffect(() => {
-    if (!streamUrl) return;
-    
-    // First load - initialize player
-    if (!prevStreamUrlRef.current) {
-      prevStreamUrlRef.current = streamUrl;
+    if (streamUrl) {
       initPlayer();
-      return;
     }
-    
-    // URL changed - try seamless update if HLS is already running
-    if (streamUrl !== prevStreamUrlRef.current) {
-      prevStreamUrlRef.current = streamUrl;
-      
-      if (hlsRef.current && Hls.isSupported()) {
-        // Seamlessly load new source without destroying player
-        const finalUrl = getProxyUrl(streamUrl);
-        console.log('[HlsJs] Seamlessly switching to new source');
-        hlsRef.current.loadSource(finalUrl);
-      } else {
-        // Fallback to full reinit
-        initPlayer();
-      }
-    }
-    
     return () => {
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
     };
-  }, [streamUrl, initPlayer, getProxyUrl]);
+  }, [streamUrl, initPlayer]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
