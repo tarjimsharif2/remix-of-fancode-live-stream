@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { ShieldX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,7 +7,7 @@ import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
 import { PlayerType } from "@/types/playerTypes";
 import { getLinkConfig, LinkConfig } from "@/types/jsonSource";
-import { extractStreamLinks } from "@/utils/streamExtractor";
+import { extractStreamLinks, StreamLink } from "@/utils/streamExtractor";
 
 // Check if running inside an iframe from allowed domain
 const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAllowed: boolean; reason: string }> => {
@@ -48,11 +48,21 @@ const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAll
   }
 };
 
+// Token refresh interval - 20 minutes (tokens typically expire in 30-60 mins)
+const TOKEN_REFRESH_INTERVAL = 20 * 60 * 1000;
+
 const LiveSourceWatch = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const matchId = searchParams.get('id') || '';
   const linkNumber = parseInt(searchParams.get('link') || '1', 10); // 1-based link number
+
+  // Refs for auto-refresh
+  const tokenRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTokenRefreshRef = useRef<number>(0);
+  const currentStreamDataRef = useRef<{ url: string; link: StreamLink | null }>({ url: '', link: null });
+  const sourceUrlRef = useRef<string>('');
+  const hlsPlayerRef = useRef<any>(null);
 
   const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('');
   const [matchTitle, setMatchTitle] = useState<string>('');
@@ -64,6 +74,8 @@ const LiveSourceWatch = () => {
   const [defaultPlayerType, setDefaultPlayerType] = useState<PlayerType>('clappr');
   const [iframeWrapperUrl, setIframeWrapperUrl] = useState<string>('');
   const [sourceLinkPrefixes, setSourceLinkPrefixes] = useState<Record<string, unknown>>({});
+  const [playerKey, setPlayerKey] = useState(0);
+  const [tokenStatus, setTokenStatus] = useState<'fresh' | 'refreshing' | 'stale'>('fresh');
 
   // Check iframe access and load settings
   useEffect(() => {
@@ -136,15 +148,48 @@ const LiveSourceWatch = () => {
     init();
   }, [slug]);
 
+  // Build stream URL from link data
+  const buildStreamUrl = useCallback((selectedLink: StreamLink, linkConfigs: Record<string, unknown>): string => {
+    let streamUrl = selectedLink.url;
+    const linkConfig = getLinkConfig(linkConfigs, linkNumber);
+    
+    // Check if URL needs proxying (has headers or is m3u8)
+    const needsProxy = selectedLink.referer || selectedLink.origin || 
+      selectedLink.cookie || selectedLink.userAgent ||
+      (streamUrl.includes('.m3u8') && !streamUrl.includes('youtube') && 
+       !streamUrl.startsWith(import.meta.env.VITE_SUPABASE_URL));
+    
+    if (needsProxy) {
+      // Route through stream-proxy for HLS streams
+      const proxyBaseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stream-proxy`;
+      const proxyParams = new URLSearchParams();
+      proxyParams.set('url', streamUrl);
+      if (selectedLink.referer) proxyParams.set('referer', selectedLink.referer);
+      if (selectedLink.origin) proxyParams.set('origin', selectedLink.origin);
+      if (selectedLink.userAgent) proxyParams.set('userAgent', selectedLink.userAgent);
+      if (selectedLink.cookie) proxyParams.set('cookie', selectedLink.cookie);
+      streamUrl = `${proxyBaseUrl}?${proxyParams.toString()}`;
+    } else if (linkConfig.prefix) {
+      // Apply configured prefix if no auto-proxy needed
+      streamUrl = linkConfig.prefix + encodeURIComponent(selectedLink.url);
+    }
+    
+    return streamUrl;
+  }, [linkNumber]);
+
   // Fetch stream URL using link number
-  const fetchStream = useCallback(async () => {
+  const fetchStream = useCallback(async (silent: boolean = false) => {
     if (!matchId || !slug) {
-      setError("No match ID provided");
-      setIsLoading(false);
-      return;
+      if (!silent) {
+        setError("No match ID provided");
+        setIsLoading(false);
+      }
+      return null;
     }
 
-    setIsLoading(true);
+    if (!silent) {
+      setIsLoading(true);
+    }
     
     try {
       // Fetch source with link_prefixes
@@ -159,9 +204,14 @@ const LiveSourceWatch = () => {
         throw new Error("Source not found");
       }
 
-      // Store link configs from source (handles both legacy string and new LinkConfig format)
+      // Store source URL for refresh
+      sourceUrlRef.current = sourceData.url;
+
+      // Store link configs from source
       const linkConfigs = (sourceData.link_prefixes as Record<string, unknown>) || {};
-      setSourceLinkPrefixes(linkConfigs);
+      if (!silent) {
+        setSourceLinkPrefixes(linkConfigs);
+      }
 
       const { data, error: fnError } = await supabase.functions.invoke('fetch-json-source', {
         body: { url: sourceData.url },
@@ -178,7 +228,7 @@ const LiveSourceWatch = () => {
           m.stream_id?.toString() === matchId
         );
         
-        // If no match by ID, try index-based (matchId could be array index)
+        // If no match by ID, try index-based
         if (!match && !isNaN(parseInt(matchId, 10))) {
           const index = parseInt(matchId, 10);
           if (index >= 0 && index < data.matches.length) {
@@ -187,89 +237,155 @@ const LiveSourceWatch = () => {
         }
         
         if (match) {
-          setMatchTitle(match.title || match.name || match.channel_name || 'Live Match');
+          if (!silent) {
+            setMatchTitle(match.title || match.name || match.channel_name || 'Live Match');
+          }
           const links = extractStreamLinks(match);
-          
-          console.log('Match found:', match);
-          console.log('Extracted links:', links);
           
           // Use link number (1-based) to select the stream
           const linkIndex = Math.max(0, Math.min(linkNumber - 1, links.length - 1));
           
           if (links.length > 0 && links[linkIndex]) {
             const selectedLink = links[linkIndex];
-            let streamUrl = selectedLink.url;
+            const streamUrl = buildStreamUrl(selectedLink, linkConfigs);
             
-            // Get link-specific config (prefix + player)
+            // Store for comparison on refresh
+            currentStreamDataRef.current = { url: selectedLink.url, link: selectedLink };
+            
+            // Apply link-specific player if configured
             const linkConfig = getLinkConfig(linkConfigs, linkNumber);
-            
-            // Check if URL needs proxying (has headers or is m3u8)
-            const needsProxy = selectedLink.referer || selectedLink.origin || 
-              selectedLink.cookie || selectedLink.userAgent ||
-              (streamUrl.includes('.m3u8') && !streamUrl.includes('youtube') && 
-               !streamUrl.startsWith(import.meta.env.VITE_SUPABASE_URL));
-            
-            if (needsProxy) {
-              // Route through stream-proxy for HLS streams
-              const proxyBaseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stream-proxy`;
-              const proxyParams = new URLSearchParams();
-              proxyParams.set('url', streamUrl);
-              if (selectedLink.referer) proxyParams.set('referer', selectedLink.referer);
-              if (selectedLink.origin) proxyParams.set('origin', selectedLink.origin);
-              if (selectedLink.userAgent) proxyParams.set('userAgent', selectedLink.userAgent);
-              if (selectedLink.cookie) proxyParams.set('cookie', selectedLink.cookie);
-              streamUrl = `${proxyBaseUrl}?${proxyParams.toString()}`;
-            } else if (linkConfig.prefix) {
-              // Apply configured prefix if no auto-proxy needed
-              streamUrl = linkConfig.prefix + encodeURIComponent(selectedLink.url);
+            if (!silent) {
+              if (linkConfig.player) {
+                setPlayerType(linkConfig.player);
+              } else {
+                setPlayerType(defaultPlayerType);
+              }
+              
+              console.log('Final stream URL:', streamUrl);
+              setCurrentStreamUrl(streamUrl);
+              setIsLoading(false);
+              lastTokenRefreshRef.current = Date.now();
             }
             
-            // Apply link-specific player if configured, otherwise use source default
-            if (linkConfig.player) {
-              setPlayerType(linkConfig.player);
-            } else {
-              setPlayerType(defaultPlayerType);
-            }
-            
-            console.log('Final stream URL:', streamUrl);
-            setCurrentStreamUrl(streamUrl);
-            setIsLoading(false);
-            return;
+            return { streamUrl, selectedLink, linkConfigs };
           }
         }
-        setError("Stream unavailable");
+        
+        if (!silent) {
+          setError("Stream unavailable");
+        }
       } else {
-        setError("Failed to load");
+        if (!silent) {
+          setError("Failed to load");
+        }
       }
     } catch (err: any) {
       console.error("Error:", err);
-      setError("Failed to load stream");
+      if (!silent) {
+        setError("Failed to load stream");
+      }
     }
     
-    setIsLoading(false);
-  }, [matchId, slug, linkNumber, defaultPlayerType]);
+    if (!silent) {
+      setIsLoading(false);
+    }
+    return null;
+  }, [matchId, slug, linkNumber, defaultPlayerType, buildStreamUrl]);
 
+  // Silent token refresh - updates stream without interrupting playback
+  const silentTokenRefresh = useCallback(async () => {
+    const now = Date.now();
+    // Prevent rapid refreshes (minimum 5 min between refreshes)
+    if (now - lastTokenRefreshRef.current < 5 * 60 * 1000) {
+      console.log('[Token Refresh] Skipped - too recent');
+      return;
+    }
+
+    console.log(`[Token Refresh] Fetching fresh data at ${new Date().toLocaleTimeString()}`);
+    setTokenStatus('refreshing');
+    
+    try {
+      const result = await fetchStream(true);
+      
+      if (result) {
+        const { streamUrl, selectedLink } = result;
+        const oldUrl = currentStreamDataRef.current.url;
+        
+        // Check if URL actually changed (new token)
+        if (selectedLink.url !== oldUrl) {
+          console.log('[Token Refresh] New token received, updating stream seamlessly...');
+          
+          // Update refs
+          currentStreamDataRef.current = { url: selectedLink.url, link: selectedLink };
+          lastTokenRefreshRef.current = now;
+          
+          // For HLS.js player, try to update source without full reload
+          if (playerType === 'hlsjs' && hlsPlayerRef.current) {
+            // HlsJsPlayer will handle the source change via prop update
+            setCurrentStreamUrl(streamUrl);
+          } else {
+            // For other players, update URL and trigger re-render with new key
+            setCurrentStreamUrl(streamUrl);
+            setPlayerKey(prev => prev + 1);
+          }
+          
+          setTokenStatus('fresh');
+          console.log('[Token Refresh] Stream updated successfully');
+        } else {
+          console.log('[Token Refresh] Token unchanged');
+          setTokenStatus('fresh');
+        }
+      }
+    } catch (err) {
+      console.error('[Token Refresh] Failed:', err);
+      setTokenStatus('stale');
+    }
+  }, [fetchStream, playerType]);
+
+  // Initial fetch
   useEffect(() => {
     if (iframeAccess?.isAllowed) {
       fetchStream();
     }
   }, [fetchStream, iframeAccess]);
 
+  // Auto token refresh interval
+  useEffect(() => {
+    if (!currentStreamUrl || isLoading || error) {
+      return;
+    }
+
+    console.log(`[Auto Refresh] Starting token refresh interval (every ${TOKEN_REFRESH_INTERVAL / 60000} minutes)`);
+    
+    tokenRefreshIntervalRef.current = setInterval(() => {
+      silentTokenRefresh();
+    }, TOKEN_REFRESH_INTERVAL);
+
+    return () => {
+      if (tokenRefreshIntervalRef.current) {
+        clearInterval(tokenRefreshIntervalRef.current);
+        tokenRefreshIntervalRef.current = null;
+      }
+    };
+  }, [currentStreamUrl, isLoading, error, silentTokenRefresh]);
+
   // Render player based on type
   const renderPlayer = () => {
     if (!currentStreamUrl) return null;
 
+    const key = `player-${playerKey}`;
+    
     switch (playerType) {
       case 'clappr':
-        return <ClapprPlayer streamUrl={currentStreamUrl} />;
+        return <ClapprPlayer key={key} streamUrl={currentStreamUrl} />;
       case 'hlsjs':
-        return <HlsJsPlayer streamUrl={currentStreamUrl} title={matchTitle} />;
+        return <HlsJsPlayer key={key} streamUrl={currentStreamUrl} title={matchTitle} />;
       case 'iframe':
-        return <IframePlayer streamUrl={currentStreamUrl} wrapperUrl={iframeWrapperUrl} title={matchTitle} />;
+        return <IframePlayer key={key} streamUrl={currentStreamUrl} wrapperUrl={iframeWrapperUrl} title={matchTitle} />;
       case 'native':
-        return <video src={currentStreamUrl} className="w-full h-full" controls autoPlay playsInline />;
+        return <video key={key} src={currentStreamUrl} className="w-full h-full" controls autoPlay playsInline />;
       default:
-        return <ClapprPlayer streamUrl={currentStreamUrl} />;
+        return <ClapprPlayer key={key} streamUrl={currentStreamUrl} />;
     }
   };
 
