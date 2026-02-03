@@ -203,8 +203,13 @@ const LiveSourceWatch = () => {
             // Get link-specific config (prefix + player)
             const linkConfig = getLinkConfig(linkConfigs, linkNumber);
             
-            // If link has referer/origin, use stream-proxy automatically
-            if (selectedLink.referer || selectedLink.origin) {
+            // Check if URL needs proxying
+            const needsProxy = selectedLink.referer || selectedLink.origin || 
+              (streamUrl.includes('.m3u8') && !streamUrl.includes('youtube') && 
+               !streamUrl.startsWith(import.meta.env.VITE_SUPABASE_URL));
+            
+            if (needsProxy) {
+              // Route through stream-proxy for HLS streams
               const proxyBaseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stream-proxy`;
               const proxyParams = new URLSearchParams();
               proxyParams.set('url', streamUrl);
