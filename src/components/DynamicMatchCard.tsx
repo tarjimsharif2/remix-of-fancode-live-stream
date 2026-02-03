@@ -70,21 +70,34 @@ const getRegionBadgeStyle = (region?: string): string => {
   }
 };
 
+// Generate URL-safe slug from channel name
+const slugify = (text: string): string => {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '') // Remove special chars
+    .replace(/\s+/g, '-')     // Replace spaces with dashes
+    .replace(/-+/g, '-')      // Replace multiple dashes with single
+    .trim();
+};
+
 interface StreamBadgeProps {
   link: StreamLink;
   baseUrl: string;
-  matchId: string;
+  matchTitle: string;
   linkNumber: number; // 1-based index
   isPlaceholder?: boolean;
 }
 
-const StreamBadge = ({ link, baseUrl, matchId, linkNumber, isPlaceholder = false }: StreamBadgeProps) => {
+const StreamBadge = ({ link, baseUrl, matchTitle, linkNumber, isPlaceholder = false }: StreamBadgeProps) => {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
 
   const handlePlay = () => {
-    // Always navigate with match ID and link number - works when stream becomes available
-    navigate(`${baseUrl}?id=${matchId}&link=${linkNumber}`);
+    // Navigate with channel slug instead of ID
+    const channelSlug = slugify(matchTitle);
+    // Remove /play-in from baseUrl and add channel slug
+    const watchUrl = baseUrl.replace(/\/play-in$/, '');
+    navigate(`${watchUrl}/${channelSlug}?link=${linkNumber}`);
   };
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -158,9 +171,11 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
   const isLive = match.status.toLowerCase() === 'live' || match.status.toLowerCase() === 'started';
   const isUpcoming = match.status.toLowerCase() === 'upcoming' || match.status.toLowerCase() === 'not_started';
   
-  // Navigate to watch page with match ID and link number
+  // Navigate to watch page with channel name slug
   const handleWatchNow = () => {
-    navigate(`${baseUrl}?id=${match.matchId}&link=1`);
+    const channelSlug = slugify(match.title);
+    const watchUrl = baseUrl.replace(/\/play-in$/, '');
+    navigate(`${watchUrl}/${channelSlug}?link=1`);
   };
 
   return (
@@ -246,7 +261,7 @@ export const DynamicMatchCard = ({ match, baseUrl, showRawData = false }: Dynami
               key={index}
               link={link}
               baseUrl={baseUrl}
-              matchId={match.matchId}
+              matchTitle={match.title}
               linkNumber={index + 1}
               isPlaceholder={!hasActualStream}
             />
