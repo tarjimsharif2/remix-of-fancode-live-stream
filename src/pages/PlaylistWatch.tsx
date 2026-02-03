@@ -126,6 +126,16 @@ const PlaylistWatch = () => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
+    
+    // Extract origin from stream URL to use as referer (helps with token-protected streams)
+    try {
+      const streamOrigin = new URL(url).origin;
+      proxyUrl.searchParams.set('referer', streamOrigin + '/');
+      proxyUrl.searchParams.set('origin', streamOrigin);
+    } catch (e) {
+      console.log('Could not extract origin from URL:', url);
+    }
+    
     return proxyUrl.toString();
   }, []);
 
