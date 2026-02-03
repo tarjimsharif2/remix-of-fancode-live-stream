@@ -43,7 +43,9 @@ const App = () => (
             <Route path="/playlist/:slug/watch" element={<PlaylistWatch />} />
             {/* Dynamic JSON Sources */}
             <Route path="/live/:slug" element={<LiveSource />} />
-            <Route path="/live/:slug/:channelSlug" element={<LiveSourceWatch />} />
+            <Route path="/live/:slug/play-bd" element={<LiveSourceWatch />} />
+            <Route path="/live/:slug/play-in" element={<LiveSourceWatch />} />
+            <Route path="/live/:slug/play-ww" element={<LiveSourceWatch />} />
             {/* YouTube Live */}
             <Route path="/youtube" element={<YouTube />} />
             <Route path="/youtube/watch/:streamId" element={<YouTubeWatch />} />

@@ -52,8 +52,9 @@ const checkIframeAccessAsync = async (allowedDomains: string[]): Promise<{ isAll
 const TOKEN_REFRESH_INTERVAL = 20 * 60 * 1000;
 
 const LiveSourceWatch = () => {
-  const { slug, channelSlug } = useParams<{ slug: string; channelSlug: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
+  const matchId = searchParams.get('id') || '';
   const linkNumber = parseInt(searchParams.get('link') || '1', 10); // 1-based link number
 
   // Refs for auto-refresh
@@ -205,21 +206,11 @@ const LiveSourceWatch = () => {
     return streamUrl;
   }, [linkNumber, isGeoRestricted]);
 
-  // Slugify helper for matching
-  const slugify = useCallback((text: string): string => {
-    return text
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
-  }, []);
-
-  // Fetch stream URL using channel slug
+  // Fetch stream URL using link number
   const fetchStream = useCallback(async (silent: boolean = false) => {
-    if (!channelSlug || !slug) {
+    if (!matchId || !slug) {
       if (!silent) {
-        setError("No channel specified");
+        setError("No match ID provided");
         setIsLoading(false);
       }
       return null;
@@ -258,12 +249,21 @@ const LiveSourceWatch = () => {
       if (fnError) throw fnError;
       
       if (data?.success && data.matches) {
-        // Find match by channel slug - match against title/name fields
-        const match = data.matches.find((m: any) => {
-          const title = m.title || m.name || m.channel_name || '';
-          const matchSlug = slugify(title);
-          return matchSlug === channelSlug;
-        });
+        // Flexible matching: check various ID fields and index-based matching
+        let match = data.matches.find((m: any) => 
+          m.match_id?.toString() === matchId || 
+          m.id?.toString() === matchId ||
+          m.channel_id?.toString() === matchId ||
+          m.stream_id?.toString() === matchId
+        );
+        
+        // If no match by ID, try index-based
+        if (!match && !isNaN(parseInt(matchId, 10))) {
+          const index = parseInt(matchId, 10);
+          if (index >= 0 && index < data.matches.length) {
+            match = data.matches[index];
+          }
+        }
         
         if (match) {
           if (!silent) {
@@ -319,7 +319,7 @@ const LiveSourceWatch = () => {
       setIsLoading(false);
     }
     return null;
-  }, [channelSlug, slug, linkNumber, defaultPlayerType, buildStreamUrl, slugify]);
+  }, [matchId, slug, linkNumber, defaultPlayerType, buildStreamUrl]);
 
   // Silent token refresh - updates stream without interrupting playback
   const silentTokenRefresh = useCallback(async () => {
