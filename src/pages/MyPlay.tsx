@@ -1,13 +1,16 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { useCustomChannels } from "@/hooks/useCustomChannels";
 import { CustomChannel } from "@/types/customChannel";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, AlertCircle, Play, Tv } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { RefreshCw, AlertCircle, Play, Tv, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const MyPlay = () => {
+  const [searchQuery, setSearchQuery] = useState("");
   const { channels, loading, error, refetch } = useCustomChannels();
   const navigate = useNavigate();
 
@@ -15,8 +18,14 @@ const MyPlay = () => {
     navigate(`/myplay/watch?id=${channel.id}`);
   };
 
-  // Group channels by category
-  const groupedChannels = channels.reduce((acc, channel) => {
+  // Filter channels by search query
+  const filteredChannels = channels.filter((channel) =>
+    channel.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (channel.category && channel.category.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  // Group filtered channels by category
+  const groupedChannels = filteredChannels.reduce((acc, channel) => {
     const category = channel.category || 'general';
     if (!acc[category]) {
       acc[category] = [];
@@ -43,6 +52,26 @@ const MyPlay = () => {
             <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
             Refresh
           </Button>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative mb-6">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search channels..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 pr-10"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {loading && (
@@ -73,7 +102,18 @@ const MyPlay = () => {
           </div>
         )}
 
-        {!loading && !error && channels.length > 0 && (
+        {!loading && !error && channels.length > 0 && filteredChannels.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <Search className="w-16 h-16 text-muted-foreground" />
+            <p className="text-muted-foreground text-lg">No channels found for "{searchQuery}"</p>
+            <Button onClick={() => setSearchQuery("")} variant="outline">
+              <X className="w-4 h-4 mr-2" />
+              Clear Search
+            </Button>
+          </div>
+        )}
+
+        {!loading && !error && filteredChannels.length > 0 && (
           <div className="space-y-8">
             {Object.entries(groupedChannels).map(([category, categoryChannels]) => (
               <div key={category}>
