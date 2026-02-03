@@ -77,12 +77,7 @@ const PlaylistWatch = () => {
   const hlsRef = useRef<Hls | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef<number>(0);
-  const tokenRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastTokenRefreshRef = useRef<number>(0);
-  const MAX_AUTO_RETRIES = 3;
-  
-  // Token refresh interval - 25 minutes (tokens typically expire in 30-60 mins)
-  const TOKEN_REFRESH_INTERVAL = 25 * 60 * 1000;
+  const MAX_AUTO_RETRIES = 2;
 
   const [playlist, setPlaylist] = useState<M3uPlaylist | null>(null);
   const [channels, setChannels] = useState<M3uChannel[]>([]);
@@ -92,7 +87,6 @@ const PlaylistWatch = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [playerEngine, setPlayerEngine] = useState<PlayerEngine>('hlsjs');
   const [playerKey, setPlayerKey] = useState(0);
-  const [tokenStatus, setTokenStatus] = useState<'fresh' | 'refreshing' | 'stale'>('fresh');
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -183,54 +177,6 @@ const PlaylistWatch = () => {
     }
   }, []);
 
-  // Silently refresh token without interrupting playback
-  const silentTokenRefresh = useCallback(async () => {
-    const now = Date.now();
-    // Prevent rapid refreshes (minimum 5 min between refreshes)
-    if (now - lastTokenRefreshRef.current < 5 * 60 * 1000) {
-      console.log('Token refresh skipped - too recent');
-      return;
-    }
-
-    console.log(`[Token Refresh] Fetching fresh tokens at ${new Date().toLocaleTimeString()}`);
-    setTokenStatus('refreshing');
-    
-    try {
-      const { channels: freshChannels } = await fetchFreshData();
-      
-      if (freshChannels && freshChannels.length > channelIndex) {
-        const freshChannel = freshChannels[channelIndex];
-        const currentUrl = currentChannel?.url;
-        
-        // Only update if URL actually changed (new token)
-        if (freshChannel && freshChannel.url !== currentUrl) {
-          console.log('[Token Refresh] New token received, updating stream...');
-          setChannels(freshChannels);
-          
-          // Seamlessly switch to new URL using HLS.js
-          if (hlsRef.current && playerEngine === 'hlsjs') {
-            const newStreamUrl = getStreamUrl(freshChannel.url);
-            hlsRef.current.loadSource(newStreamUrl);
-            console.log('[Token Refresh] Stream URL updated seamlessly');
-          } else {
-            // For Clappr or native, need to update channel
-            setCurrentChannel(freshChannel);
-            setPlayerKey(prev => prev + 1);
-          }
-          
-          lastTokenRefreshRef.current = now;
-          setTokenStatus('fresh');
-        } else {
-          console.log('[Token Refresh] Token unchanged or same URL');
-          setTokenStatus('fresh');
-        }
-      }
-    } catch (err) {
-      console.error('[Token Refresh] Failed:', err);
-      setTokenStatus('stale');
-    }
-  }, [fetchFreshData, channelIndex, currentChannel, playerEngine, getStreamUrl]);
-
   const refreshAndRetry = useCallback(async () => {
     if (retryCountRef.current >= MAX_AUTO_RETRIES) {
       console.log('Max auto-retries reached, showing error');
@@ -255,7 +201,6 @@ const PlaylistWatch = () => {
           setChannels(freshChannels);
           setCurrentChannel(channel);
           setPlayerKey(prev => prev + 1);
-          lastTokenRefreshRef.current = Date.now();
         }
       }
     } catch (err) {
@@ -410,9 +355,7 @@ const PlaylistWatch = () => {
   // Initialize player on mount and channel change
   useEffect(() => {
     retryCountRef.current = 0;
-    lastTokenRefreshRef.current = Date.now();
     setCurrentChannel(null);
-    setTokenStatus('fresh');
     initPlayer();
 
     return () => {
@@ -423,27 +366,6 @@ const PlaylistWatch = () => {
       unlockOrientation();
     };
   }, [channelIndex, slug]);
-
-  // Auto token refresh interval - keeps stream alive by refreshing tokens before expiry
-  useEffect(() => {
-    // Only start interval when stream is playing
-    if (!currentChannel || loading || error) {
-      return;
-    }
-
-    console.log(`[Auto Refresh] Starting token refresh interval (every ${TOKEN_REFRESH_INTERVAL / 60000} minutes)`);
-    
-    tokenRefreshIntervalRef.current = setInterval(() => {
-      silentTokenRefresh();
-    }, TOKEN_REFRESH_INTERVAL);
-
-    return () => {
-      if (tokenRefreshIntervalRef.current) {
-        clearInterval(tokenRefreshIntervalRef.current);
-        tokenRefreshIntervalRef.current = null;
-      }
-    };
-  }, [currentChannel, loading, error, silentTokenRefresh]);
 
   // Fullscreen handling
   useEffect(() => {
@@ -683,17 +605,9 @@ const PlaylistWatch = () => {
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-white font-medium truncate">
-                    {currentChannel?.name || "Loading..."}
-                  </h2>
-                  {/* Token status indicator */}
-                  {tokenStatus === 'refreshing' && (
-                    <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full animate-pulse">
-                      Refreshing...
-                    </span>
-                  )}
-                </div>
+                <h2 className="text-white font-medium truncate">
+                  {currentChannel?.name || "Loading..."}
+                </h2>
                 {currentChannel?.group && (
                   <p className="text-white/60 text-sm truncate">{currentChannel.group}</p>
                 )}
