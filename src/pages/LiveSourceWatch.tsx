@@ -170,17 +170,27 @@ const LiveSourceWatch = () => {
       if (fnError) throw fnError;
       
       if (data?.success && data.matches) {
-        const match = data.matches.find((m: any) => 
+        // Flexible matching: check various ID fields and index-based matching
+        let match = data.matches.find((m: any) => 
           m.match_id?.toString() === matchId || 
           m.id?.toString() === matchId ||
           m.channel_id?.toString() === matchId ||
           m.stream_id?.toString() === matchId
         );
         
+        // If no match by ID, try index-based (matchId could be array index)
+        if (!match && !isNaN(parseInt(matchId, 10))) {
+          const index = parseInt(matchId, 10);
+          if (index >= 0 && index < data.matches.length) {
+            match = data.matches[index];
+          }
+        }
+        
         if (match) {
           setMatchTitle(match.title || match.name || match.channel_name || 'Live Match');
           const links = extractStreamLinks(match);
           
+          console.log('Match found:', match);
           console.log('Extracted links:', links);
           
           // Use link number (1-based) to select the stream

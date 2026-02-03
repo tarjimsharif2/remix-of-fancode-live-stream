@@ -18,8 +18,8 @@ export interface StreamLink {
 
 // Common field names for stream URLs - ordered by priority
 const STREAM_FIELDS = [
-  // Direct link fields (most common in simple JSON)
-  'link', 'url', 'src', 'source',
+  // Direct link fields (most common in simple JSON) - url first!
+  'url', 'link', 'src', 'source',
   // Primary/Main URLs
   'Primary_Playback_URL', 'primary_playback_url',
   'adfree_url', 'adFreeUrl', 'adfree',
