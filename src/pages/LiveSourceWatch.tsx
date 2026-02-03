@@ -149,8 +149,7 @@ const LiveSourceWatch = () => {
   }, [slug]);
 
   // Geo-restricted domains that should NEVER be proxied (must load directly in user's browser)
-  // Also domains that work better with direct access (user's local IP)
-  const GEO_RESTRICTED_DOMAINS = ['aynascope.net', 'aynaott', 'toffeelive.com', 'roarzone.info'];
+  const GEO_RESTRICTED_DOMAINS = ['aynascope.net', 'aynaott', 'toffeelive.com'];
   
   // Check if URL is from a geo-restricted domain
   const isGeoRestricted = useCallback((url: string): boolean => {
