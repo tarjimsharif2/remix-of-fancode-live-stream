@@ -59,24 +59,47 @@ function parseM3u(content: string): M3uChannel[] {
   return channels;
 }
 
+// Generate URL-safe slug from channel name
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '') // Remove special chars
+    .replace(/\s+/g, '-')     // Replace spaces with dashes
+    .replace(/-+/g, '-')      // Replace multiple dashes with single
+    .trim();
+}
+
 function convertToJsonFormat(channels: M3uChannel[]): JsonChannel[] {
-  return channels.map((channel, index) => ({
-    id: `ayna-${index}`,
-    name: channel.name,
-    title: channel.name,
-    category: channel.group || "General",
-    thumbnail: channel.logo || "",
-    logo: channel.logo || "",
-    status: "live",
-    url: channel.url,
-    stream_url: channel.url,
-    streams: [
-      {
-        name: "Primary",
-        url: channel.url,
-      },
-    ],
-  }));
+  const seenSlugs = new Map<string, number>();
+  
+  return channels.map((channel) => {
+    // Create unique ID based on channel name
+    let baseSlug = slugify(channel.name) || 'channel';
+    
+    // Handle duplicates by adding counter
+    const count = seenSlugs.get(baseSlug) || 0;
+    seenSlugs.set(baseSlug, count + 1);
+    
+    const uniqueId = count > 0 ? `${baseSlug}-${count}` : baseSlug;
+    
+    return {
+      id: uniqueId,
+      name: channel.name,
+      title: channel.name,
+      category: channel.group || "General",
+      thumbnail: channel.logo || "",
+      logo: channel.logo || "",
+      status: "live",
+      url: channel.url,
+      stream_url: channel.url,
+      streams: [
+        {
+          name: channel.name, // Use channel name as stream label
+          url: channel.url,
+        },
+      ],
+    };
+  });
 }
 
 serve(async (req) => {
