@@ -16,6 +16,9 @@ const GEO_RESTRICTED_DOMAINS = [
   'akamaicdn',
 ];
 
+// Toffee domains - need cookie but work with direct proxy
+const TOFFEE_DOMAINS = ['toffeelive.com', 'toffee'];
+
 // Domains that need specific origin/referer override (like AynaOTT)
 const AYNA_DOMAINS = ['aynascope.net'];
 const AYNA_ORIGIN = 'https://ayna.oxo.lol';

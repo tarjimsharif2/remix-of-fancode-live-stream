@@ -14,6 +14,7 @@ export interface StreamLink {
   referer?: string;
   origin?: string;
   userAgent?: string;
+  cookie?: string;
 }
 
 // Common field names for stream URLs - ordered by priority
@@ -109,14 +110,35 @@ const detectRegion = (url: string, fieldName: string): string | undefined => {
   return undefined;
 };
 
+// Extract header values from object (handles nested headers object like Toffee format)
+const extractHeaders = (obj: Record<string, any>): { referer?: string; origin?: string; userAgent?: string; cookie?: string } => {
+  // Check for nested headers object first (Toffee format)
+  const headers = obj.headers || obj.Headers || {};
+  
+  // Direct fields or from nested headers object
+  const referer = obj.referer || obj.Referer || obj.referrer || obj.Referrer || 
+                  headers.referer || headers.Referer || headers.referrer || '';
+  const origin = obj.origin || obj.Origin || 
+                 headers.origin || headers.Origin || headers.Host || headers.host || '';
+  const userAgent = obj.user_agent || obj.userAgent || obj.User_Agent || 
+                    headers['user-agent'] || headers['User-Agent'] || headers.userAgent || '';
+  const cookie = obj.cookie || obj.Cookie || 
+                 headers.cookie || headers.Cookie || '';
+
+  return {
+    referer: referer || undefined,
+    origin: origin || undefined,
+    userAgent: userAgent || undefined,
+    cookie: cookie || undefined,
+  };
+};
+
 // Extract stream URLs from a flat object
 const extractFromObject = (obj: Record<string, any>, seenUrls: Set<string>): StreamLink[] => {
   const links: StreamLink[] = [];
   
   // Get header values from the object (for proxy use)
-  const referer = obj.referer || obj.Referer || obj.referrer || obj.Referrer || '';
-  const origin = obj.origin || obj.Origin || '';
-  const userAgent = obj.user_agent || obj.userAgent || obj.User_Agent || '';
+  const headerInfo = extractHeaders(obj);
   
   for (const field of STREAM_FIELDS) {
     const value = obj[field];
@@ -126,9 +148,10 @@ const extractFromObject = (obj: Record<string, any>, seenUrls: Set<string>): Str
         url: value,
         label: getLabelFromField(field),
         region: detectRegion(value, field),
-        referer: referer || undefined,
-        origin: origin || undefined,
-        userAgent: userAgent || undefined,
+        referer: headerInfo.referer,
+        origin: headerInfo.origin,
+        userAgent: headerInfo.userAgent,
+        cookie: headerInfo.cookie,
       });
     }
   }

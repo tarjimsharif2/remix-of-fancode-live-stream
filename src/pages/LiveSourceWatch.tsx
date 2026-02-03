@@ -203,8 +203,9 @@ const LiveSourceWatch = () => {
             // Get link-specific config (prefix + player)
             const linkConfig = getLinkConfig(linkConfigs, linkNumber);
             
-            // Check if URL needs proxying
+            // Check if URL needs proxying (has headers or is m3u8)
             const needsProxy = selectedLink.referer || selectedLink.origin || 
+              selectedLink.cookie || selectedLink.userAgent ||
               (streamUrl.includes('.m3u8') && !streamUrl.includes('youtube') && 
                !streamUrl.startsWith(import.meta.env.VITE_SUPABASE_URL));
             
@@ -216,6 +217,7 @@ const LiveSourceWatch = () => {
               if (selectedLink.referer) proxyParams.set('referer', selectedLink.referer);
               if (selectedLink.origin) proxyParams.set('origin', selectedLink.origin);
               if (selectedLink.userAgent) proxyParams.set('userAgent', selectedLink.userAgent);
+              if (selectedLink.cookie) proxyParams.set('cookie', selectedLink.cookie);
               streamUrl = `${proxyBaseUrl}?${proxyParams.toString()}`;
             } else if (linkConfig.prefix) {
               // Apply configured prefix if no auto-proxy needed
