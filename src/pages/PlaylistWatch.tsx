@@ -211,8 +211,6 @@ const PlaylistWatch = () => {
   }, [fetchFreshData, channelIndex]);
 
   const initPlayer = useCallback(async () => {
-    const video = videoRef.current;
-    
     // Cleanup previous HLS instance
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -252,106 +250,112 @@ const PlaylistWatch = () => {
 
       setCurrentChannel(channel);
       console.log('Playing channel:', channel.name, 'URL:', channel.url);
-
-      const streamUrl = getStreamUrl(channel.url);
-      console.log('Using stream URL:', streamUrl);
-
-      // For Clappr, we just set loading to false and let the component handle it
-      if (defaultPlayer === 'clappr') {
-        setLoading(false);
-        return;
-      }
-
-      // HLS.js player initialization
-      if (!video) {
-        setLoading(false);
-        return;
-      }
-
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-          backBufferLength: 30,
-          maxBufferLength: 10,
-          maxMaxBufferLength: 30,
-          liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 4,
-          liveDurationInfinity: true,
-          startLevel: -1,
-          capLevelToPlayerSize: false,
-        });
-
-        hlsRef.current = hls;
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-          retryCountRef.current = 0;
-          setLoading(false);
-          video.muted = false;
-          video.play().then(() => setIsPlaying(true)).catch(console.error);
-
-          // Extract quality levels
-          if (data.levels && data.levels.length > 0) {
-            const levels: QualityLevel[] = data.levels
-              .map((level, index) => ({
-                id: index,
-                height: level.height || 0,
-                label: level.height ? `${level.height}p` : `${Math.round((level.bitrate || 0) / 1000)}kbps`,
-              }))
-              .filter((q) => q.height > 0)
-              .sort((a, b) => b.height - a.height);
-            
-            setQualityLevels(levels);
-          }
-          setCurrentQuality(-1);
-        });
-
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) {
-            console.error("HLS fatal error:", data);
-            
-            if (retryCountRef.current < MAX_AUTO_RETRIES) {
-              console.log('Fatal error detected, auto-refreshing...');
-              refreshAndRetry();
-            } else {
-              setError("Stream error. Please try again.");
-              setLoading(false);
-            }
-          }
-        });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl;
-        video.addEventListener('loadedmetadata', () => {
-          retryCountRef.current = 0;
-          setLoading(false);
-          video.muted = false;
-          video.play().then(() => setIsPlaying(true)).catch(console.error);
-        });
-        video.addEventListener('error', () => {
-          if (retryCountRef.current < MAX_AUTO_RETRIES) {
-            console.log('Video error detected, auto-refreshing...');
-            refreshAndRetry();
-          } else {
-            setError("Stream error. Please try again.");
-            setLoading(false);
-          }
-        });
-      } else {
-        setError("HLS not supported in this browser");
-        setLoading(false);
-      }
+      setLoading(false);
     } catch (err) {
       console.error('Error initializing player:', err);
       setError(err instanceof Error ? err.message : 'Failed to load stream');
       setLoading(false);
     }
-  }, [fetchFreshData, channelIndex, getStreamUrl, refreshAndRetry]);
+  }, [fetchFreshData, channelIndex]);
+
+  // Initialize HLS.js when channel is ready and video element is available
+  useEffect(() => {
+    if (!currentChannel || playerEngine !== 'hlsjs' || loading) return;
+    
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Cleanup previous instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const streamUrl = getStreamUrl(currentChannel.url);
+    console.log('Initializing HLS with:', streamUrl);
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 30,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 30,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 4,
+        liveDurationInfinity: true,
+        startLevel: -1,
+        capLevelToPlayerSize: false,
+      });
+
+      hlsRef.current = hls;
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+        retryCountRef.current = 0;
+        video.muted = false;
+        video.play().then(() => setIsPlaying(true)).catch(console.error);
+
+        // Extract quality levels
+        if (data.levels && data.levels.length > 0) {
+          const levels: QualityLevel[] = data.levels
+            .map((level, index) => ({
+              id: index,
+              height: level.height || 0,
+              label: level.height ? `${level.height}p` : `${Math.round((level.bitrate || 0) / 1000)}kbps`,
+            }))
+            .filter((q) => q.height > 0)
+            .sort((a, b) => b.height - a.height);
+          
+          setQualityLevels(levels);
+        }
+        setCurrentQuality(-1);
+      });
+
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          console.error("HLS fatal error:", data);
+          
+          if (retryCountRef.current < MAX_AUTO_RETRIES) {
+            console.log('Fatal error detected, auto-refreshing...');
+            refreshAndRetry();
+          } else {
+            setError("Stream error. Please try again.");
+          }
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = streamUrl;
+      video.addEventListener('loadedmetadata', () => {
+        retryCountRef.current = 0;
+        video.muted = false;
+        video.play().then(() => setIsPlaying(true)).catch(console.error);
+      });
+      video.addEventListener('error', () => {
+        if (retryCountRef.current < MAX_AUTO_RETRIES) {
+          console.log('Video error detected, auto-refreshing...');
+          refreshAndRetry();
+        } else {
+          setError("Stream error. Please try again.");
+        }
+      });
+    } else {
+      setError("HLS not supported in this browser");
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [currentChannel, playerEngine, loading, getStreamUrl, refreshAndRetry, playerKey]);
 
   // Initialize player on mount and channel change
   useEffect(() => {
     retryCountRef.current = 0;
+    setCurrentChannel(null);
     initPlayer();
 
     return () => {
