@@ -24,6 +24,11 @@ const AYNA_DOMAINS = ['aynascope.net'];
 const AYNA_ORIGIN = 'https://ayna.oxo.lol';
 const AYNA_REFERER = 'https://ayna.oxo.lol/';
 
+// Roarzone domains - need specific origin/referer
+const ROARZONE_DOMAINS = ['roarzone.info', 'roarzone'];
+const ROARZONE_ORIGIN = 'https://tv.roarzone.info';
+const ROARZONE_REFERER = 'https://tv.roarzone.info/';
+
 interface ProxyError {
   error: string;
   code: string;
@@ -46,6 +51,10 @@ function isGeoRestricted(url: string): boolean {
 
 function isAynaDomain(url: string): boolean {
   return AYNA_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
+}
+
+function isRoarzoneDomain(url: string): boolean {
+  return ROARZONE_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
 }
 
 function buildExternalProxyUrl(streamUrl: string, referer: string, origin: string, userAgent: string): string {
@@ -153,17 +162,26 @@ serve(async (req) => {
     // Determine if we should use external proxy
     const shouldUseExternalProxy = useExternalProxy || isGeoRestricted(streamUrl);
     
-    // Check if this is an Ayna domain - needs special origin/referer
+    // Check if this is a special domain that needs origin/referer override
     const isAyna = isAynaDomain(streamUrl);
+    const isRoarzone = isRoarzoneDomain(streamUrl);
     
     // Build headers for the upstream request
     const requestUa = req.headers.get('user-agent') || '';
     const requestRange = req.headers.get('range') || '';
     const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     
-    // Override origin/referer for Ayna domains
-    const effectiveOrigin = isAyna ? AYNA_ORIGIN : origin;
-    const effectiveReferer = isAyna ? AYNA_REFERER : referer;
+    // Override origin/referer for special domains
+    let effectiveOrigin = origin;
+    let effectiveReferer = referer;
+    
+    if (isAyna) {
+      effectiveOrigin = AYNA_ORIGIN;
+      effectiveReferer = AYNA_REFERER;
+    } else if (isRoarzone) {
+      effectiveOrigin = ROARZONE_ORIGIN;
+      effectiveReferer = ROARZONE_REFERER;
+    }
 
     let fetchUrl: string;
     let upstreamHeaders: Record<string, string>;
@@ -211,6 +229,8 @@ serve(async (req) => {
       
       if (isAyna) {
         console.log(`[${new Date().toISOString()}] Using AYNA override: Origin=${effectiveOrigin}, Referer=${effectiveReferer}`);
+      } else if (isRoarzone) {
+        console.log(`[${new Date().toISOString()}] Using ROARZONE override: Origin=${effectiveOrigin}, Referer=${effectiveReferer}`);
       }
       
       console.log(`[${new Date().toISOString()}] Proxying DIRECT: ${streamUrl}`);
