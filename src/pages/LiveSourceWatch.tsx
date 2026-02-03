@@ -148,10 +148,39 @@ const LiveSourceWatch = () => {
     init();
   }, [slug]);
 
+  // Geo-restricted domains that should NEVER be proxied (must load directly in user's browser)
+  const GEO_RESTRICTED_DOMAINS = ['aynascope.net', 'aynaott', 'toffeelive.com'];
+  
+  // Check if URL is from a geo-restricted domain
+  const isGeoRestricted = useCallback((url: string): boolean => {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      return GEO_RESTRICTED_DOMAINS.some(domain => hostname.includes(domain));
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Build stream URL from link data
-  const buildStreamUrl = useCallback((selectedLink: StreamLink, linkConfigs: Record<string, unknown>): string => {
+  const buildStreamUrl = useCallback((selectedLink: StreamLink, linkConfigs: Record<string, unknown>, finalPlayerType: PlayerType): string => {
     let streamUrl = selectedLink.url;
     const linkConfig = getLinkConfig(linkConfigs, linkNumber);
+    
+    // NEVER proxy geo-restricted streams - they must load directly in user's browser
+    if (isGeoRestricted(streamUrl)) {
+      console.log('[GeoRestricted] Skipping proxy for:', streamUrl);
+      return streamUrl; // Return raw URL for direct browser playback
+    }
+    
+    // For iframe player, skip proxying - let the browser handle it directly
+    if (finalPlayerType === 'iframe') {
+      console.log('[Iframe Player] Skipping proxy, using direct URL');
+      // Apply prefix if configured
+      if (linkConfig.prefix) {
+        return linkConfig.prefix + encodeURIComponent(selectedLink.url);
+      }
+      return streamUrl;
+    }
     
     // Check if URL needs proxying (has headers or is m3u8)
     const needsProxy = selectedLink.referer || selectedLink.origin || 
@@ -175,7 +204,7 @@ const LiveSourceWatch = () => {
     }
     
     return streamUrl;
-  }, [linkNumber]);
+  }, [linkNumber, isGeoRestricted]);
 
   // Fetch stream URL using link number
   const fetchStream = useCallback(async (silent: boolean = false) => {
@@ -247,19 +276,19 @@ const LiveSourceWatch = () => {
           
           if (links.length > 0 && links[linkIndex]) {
             const selectedLink = links[linkIndex];
-            const streamUrl = buildStreamUrl(selectedLink, linkConfigs);
+            
+            // Determine player type first (needed for buildStreamUrl)
+            const linkConfig = getLinkConfig(linkConfigs, linkNumber);
+            const finalPlayerType = linkConfig.player || defaultPlayerType;
+            
+            // Build URL with player type info (to decide on proxying)
+            const streamUrl = buildStreamUrl(selectedLink, linkConfigs, finalPlayerType);
             
             // Store for comparison on refresh
             currentStreamDataRef.current = { url: selectedLink.url, link: selectedLink };
             
-            // Apply link-specific player if configured
-            const linkConfig = getLinkConfig(linkConfigs, linkNumber);
             if (!silent) {
-              if (linkConfig.player) {
-                setPlayerType(linkConfig.player);
-              } else {
-                setPlayerType(defaultPlayerType);
-              }
+              setPlayerType(finalPlayerType);
               
               console.log('Final stream URL:', streamUrl);
               setCurrentStreamUrl(streamUrl);
