@@ -28,6 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 
 interface QualityLevel {
   id: number;
@@ -63,6 +64,8 @@ function parseM3u(content: string): M3uChannel[] {
   return channels;
 }
 
+type PlayerEngine = 'hlsjs' | 'clappr';
+
 const PlaylistWatch = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
@@ -75,7 +78,6 @@ const PlaylistWatch = () => {
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef<number>(0);
   const MAX_AUTO_RETRIES = 2;
-  const triedDirectFallbackRef = useRef(false);
 
   const [playlist, setPlaylist] = useState<M3uPlaylist | null>(null);
   const [channels, setChannels] = useState<M3uChannel[]>([]);
@@ -83,7 +85,8 @@ const PlaylistWatch = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
+  const [playerEngine, setPlayerEngine] = useState<PlayerEngine>('hlsjs');
+  const [playerKey, setPlayerKey] = useState(0);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -97,8 +100,8 @@ const PlaylistWatch = () => {
   });
 
   // Fetch fresh M3U content each time (via backend to avoid CORS + ensure freshness)
-  const fetchFreshData = useCallback(async (): Promise<M3uChannel[] | null> => {
-    if (!slug) return null;
+  const fetchFreshData = useCallback(async (): Promise<{ playlist: M3uPlaylist | null; channels: M3uChannel[] }> => {
+    if (!slug) return { playlist: null, channels: [] };
 
     try {
       const { data, error: fnError } = await supabase.functions.invoke<{
@@ -111,10 +114,8 @@ const PlaylistWatch = () => {
       if (fnError) throw new Error(fnError.message);
       if (!data?.playlist) throw new Error('Playlist not found');
 
-      setPlaylist(data.playlist);
       const parsedChannels = Array.isArray(data.channels) ? data.channels : [];
-      setChannels(parsedChannels);
-      return parsedChannels;
+      return { playlist: data.playlist, channels: parsedChannels };
     } catch (err) {
       console.error('Error fetching M3U data:', err);
       throw err;
@@ -127,7 +128,7 @@ const PlaylistWatch = () => {
     const proxyUrl = new URL(`${supabaseUrl}/functions/v1/stream-proxy`);
     proxyUrl.searchParams.set('url', url);
     
-    // Extract origin from stream URL to use as referer (helps with token-protected streams)
+    // Extract origin from stream URL to use as referer
     try {
       const streamOrigin = new URL(url).origin;
       proxyUrl.searchParams.set('referer', streamOrigin + '/');
@@ -149,13 +150,12 @@ const PlaylistWatch = () => {
   }, []);
 
   const getStreamUrl = useCallback((url: string) => {
-    // HTTP URLs must always go through proxy (mixed content blocking)
-    if (isHttpUrl(url)) {
+    // Always use proxy for HLS streams to handle CORS and tokens
+    if (url.includes('.m3u8') || isHttpUrl(url)) {
       return getProxyUrl(url);
     }
-    if (streamMode === 'direct') return url;
-    return getProxyUrl(url);
-  }, [getProxyUrl, streamMode, isHttpUrl]);
+    return url;
+  }, [getProxyUrl, isHttpUrl]);
 
   const lockLandscape = useCallback(async () => {
     try {
@@ -177,62 +177,6 @@ const PlaylistWatch = () => {
     }
   }, []);
 
-  // Switch to direct mode if proxy fails
-  const switchToDirectMode = useCallback((streamUrl: string) => {
-    if (triedDirectFallbackRef.current) return false;
-    // Don't switch to direct for HTTP URLs - browser will block mixed content
-    if (isHttpUrl(streamUrl)) {
-      console.log('HTTP stream detected, cannot use direct mode (mixed content)');
-      return false;
-    }
-    console.log('Switching to direct stream mode (proxy unreachable)');
-    triedDirectFallbackRef.current = true;
-    setStreamMode('direct');
-    setError(null);
-    setLoading(true);
-    return true;
-  }, [isHttpUrl]);
-
-  // Codes that indicate proxy couldn't reach the host
-  const PROXY_UNREACHABLE_CODES = new Set(['DNS_ERROR', 'SSL_ERROR', 'CONNECTION_REFUSED', 'TIMEOUT']);
-
-  // Pre-check proxy URL before initializing player
-  const checkProxyAndPlay = useCallback(async (url: string): Promise<{ canUseProxy: boolean; errorCode?: string }> => {
-    if (streamMode === 'direct') return { canUseProxy: false };
-    
-    const proxyUrl = getProxyUrl(url);
-    
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const res = await fetch(proxyUrl, { 
-        method: 'GET',
-        signal: controller.signal 
-      });
-      clearTimeout(timeoutId);
-      
-      const ct = res.headers.get('content-type') || '';
-      
-      // If response is JSON, it's an error from the proxy
-      if (ct.includes('application/json')) {
-        const body = await res.json();
-        const code = body?.code || '';
-        console.log('Proxy returned error:', code, body?.error);
-        
-        if (PROXY_UNREACHABLE_CODES.has(code)) {
-          return { canUseProxy: false, errorCode: code };
-        }
-      }
-      
-      return { canUseProxy: true };
-    } catch (e) {
-      console.log('Proxy check failed:', e);
-      return { canUseProxy: false, errorCode: 'FETCH_ERROR' };
-    }
-  }, [getProxyUrl, streamMode]);
-
-  // Auto-refresh channel and retry stream on errors
   const refreshAndRetry = useCallback(async () => {
     if (retryCountRef.current >= MAX_AUTO_RETRIES) {
       console.log('Max auto-retries reached, showing error');
@@ -249,12 +193,14 @@ const PlaylistWatch = () => {
     setError(null);
 
     try {
-      const freshChannels = await fetchFreshData();
+      const { channels: freshChannels } = await fetchFreshData();
 
       if (freshChannels && freshChannels.length > 0) {
         const channel = freshChannels[channelIndex];
         if (channel) {
+          setChannels(freshChannels);
           setCurrentChannel(channel);
+          setPlayerKey(prev => prev + 1);
         }
       }
     } catch (err) {
@@ -266,9 +212,8 @@ const PlaylistWatch = () => {
 
   const initPlayer = useCallback(async () => {
     const video = videoRef.current;
-    if (!video) return;
-
-    // Cleanup previous instance
+    
+    // Cleanup previous HLS instance
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -278,10 +223,26 @@ const PlaylistWatch = () => {
     setError(null);
 
     try {
-      // Fetch fresh data each time
-      const freshChannels = await fetchFreshData();
+      // Fetch fresh data
+      const { playlist: fetchedPlaylist, channels: freshChannels } = await fetchFreshData();
+      
+      if (!fetchedPlaylist) {
+        throw new Error('Playlist not found');
+      }
+      
       if (!freshChannels || freshChannels.length === 0) {
         throw new Error('No channels found in playlist');
+      }
+
+      setPlaylist(fetchedPlaylist);
+      setChannels(freshChannels);
+      
+      // Set player engine from playlist settings
+      const defaultPlayer = fetchedPlaylist.default_player || 'hlsjs';
+      if (defaultPlayer === 'clappr') {
+        setPlayerEngine('clappr');
+      } else {
+        setPlayerEngine('hlsjs');
       }
 
       const channel = freshChannels[channelIndex];
@@ -292,19 +253,20 @@ const PlaylistWatch = () => {
       setCurrentChannel(channel);
       console.log('Playing channel:', channel.name, 'URL:', channel.url);
 
-      // If using proxy mode, pre-check if proxy can reach the stream
-      if (streamMode === 'proxy') {
-        const { canUseProxy, errorCode } = await checkProxyAndPlay(channel.url);
-        if (!canUseProxy && errorCode) {
-          console.log(`Proxy failed with ${errorCode}, switching to direct mode`);
-          if (switchToDirectMode(channel.url)) {
-            return; // Will re-init with direct mode via useEffect
-          }
-        }
+      const streamUrl = getStreamUrl(channel.url);
+      console.log('Using stream URL:', streamUrl);
+
+      // For Clappr, we just set loading to false and let the component handle it
+      if (defaultPlayer === 'clappr') {
+        setLoading(false);
+        return;
       }
 
-      const streamUrl = getStreamUrl(channel.url);
-      console.log('Using stream URL:', streamUrl, '(mode:', streamMode, ')');
+      // HLS.js player initialization
+      if (!video) {
+        setLoading(false);
+        return;
+      }
 
       if (Hls.isSupported()) {
         const hls = new Hls({
@@ -349,21 +311,9 @@ const PlaylistWatch = () => {
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (data.fatal) {
             console.error("HLS fatal error:", data);
-
-            const isNetworkError = data.type === Hls.ErrorTypes.NETWORK_ERROR;
-            const isManifestError =
-              data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
-              data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR;
-
-            // If proxy mode and network error, try switching to direct
-            if ((isNetworkError || isManifestError) && streamMode === 'proxy' && currentChannel) {
-              if (switchToDirectMode(currentChannel.url)) {
-                return; // Will re-init via useEffect
-              }
-            }
-
-            if ((isNetworkError || isManifestError) && retryCountRef.current < MAX_AUTO_RETRIES) {
-              console.log('Network/manifest error detected, auto-refreshing...');
+            
+            if (retryCountRef.current < MAX_AUTO_RETRIES) {
+              console.log('Fatal error detected, auto-refreshing...');
               refreshAndRetry();
             } else {
               setError("Stream error. Please try again.");
@@ -380,13 +330,6 @@ const PlaylistWatch = () => {
           video.play().then(() => setIsPlaying(true)).catch(console.error);
         });
         video.addEventListener('error', () => {
-          // If proxy mode and error, try switching to direct
-          if (streamMode === 'proxy' && currentChannel) {
-            if (switchToDirectMode(currentChannel.url)) {
-              return;
-            }
-          }
-
           if (retryCountRef.current < MAX_AUTO_RETRIES) {
             console.log('Video error detected, auto-refreshing...');
             refreshAndRetry();
@@ -404,12 +347,10 @@ const PlaylistWatch = () => {
       setError(err instanceof Error ? err.message : 'Failed to load stream');
       setLoading(false);
     }
-  }, [fetchFreshData, channelIndex, getStreamUrl, checkProxyAndPlay, switchToDirectMode, refreshAndRetry, streamMode, currentChannel]);
+  }, [fetchFreshData, channelIndex, getStreamUrl, refreshAndRetry]);
 
   // Initialize player on mount and channel change
   useEffect(() => {
-    triedDirectFallbackRef.current = false;
-    setStreamMode('proxy');
     retryCountRef.current = 0;
     initPlayer();
 
@@ -421,13 +362,6 @@ const PlaylistWatch = () => {
       unlockOrientation();
     };
   }, [channelIndex, slug]);
-
-  // Re-init when stream mode changes
-  useEffect(() => {
-    if (currentChannel && streamMode === 'direct') {
-      initPlayer();
-    }
-  }, [streamMode]);
 
   // Fullscreen handling
   useEffect(() => {
@@ -489,8 +423,7 @@ const PlaylistWatch = () => {
   
   const handleRetry = async () => {
     retryCountRef.current = 0;
-    triedDirectFallbackRef.current = false;
-    setStreamMode('proxy');
+    setPlayerKey(prev => prev + 1);
     setIsRefreshing(true);
     setError(null);
 
@@ -578,6 +511,11 @@ const PlaylistWatch = () => {
     setDisplayMode(mode);
   };
 
+  const handlePlayerEngineChange = (engine: PlayerEngine) => {
+    setPlayerEngine(engine);
+    setPlayerKey(prev => prev + 1);
+  };
+
   const getDisplayModeClass = () => {
     switch (displayMode) {
       case 'fit': return 'object-contain';
@@ -593,121 +531,111 @@ const PlaylistWatch = () => {
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-white/80">Loading channel...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state (no current channel)
-  if (error && !currentChannel) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-6">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <AlertCircle className="w-16 h-16 text-destructive" />
-          <p className="text-white">{error}</p>
-          <div className="flex gap-2">
-            <Button onClick={handleClose} variant="outline">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Button>
-            <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
-              <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
-              Retry
-            </Button>
-          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black flex flex-col">
+      {/* Video Container */}
       <div
         ref={containerRef}
-        className={cn(
-          "relative bg-black overflow-hidden",
-          // Always full-page like MyPlay (mobile-first)
-          "h-[100svh] w-full"
-        )}
+        className="flex-1 relative bg-black flex items-center justify-center overflow-hidden"
       >
-          {/* Loading overlay */}
-          {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                <p className="text-white/80">Connecting to stream...</p>
-              </div>
-            </div>
-          )}
-
-          {/* Error overlay */}
-          {error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-20">
-              <div className="flex flex-col items-center gap-4 text-center p-6">
-                <AlertCircle className="w-12 h-12 text-destructive" />
-                <p className="text-white">{error}</p>
-                <Button onClick={handleRetry} variant="outline" disabled={isRefreshing}>
-                  <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
-                  Retry
-                </Button>
-              </div>
-            </div>
-          )}
-
+        {/* Player */}
+        {playerEngine === 'clappr' && currentChannel ? (
+          <ClapprPlayer 
+            key={playerKey} 
+            streamUrl={getStreamUrl(currentChannel.url)} 
+          />
+        ) : (
           <video
             ref={videoRef}
-            className={cn("w-full h-full bg-black", getDisplayModeClass())}
+            className={cn("w-full h-full", getDisplayModeClass())}
             playsInline
+            autoPlay
             onClick={togglePlay}
           />
+        )}
 
-          {/* Controls overlay */}
-          <div
-            className={cn(
-              "absolute inset-0 transition-opacity duration-300 z-10",
-              showControls ? "opacity-100" : "opacity-0 pointer-events-none"
-            )}
-          >
-            {/* Top bar */}
-            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Button variant="ghost" size="icon" onClick={handleClose} className="text-white hover:bg-white/20">
-                    <ArrowLeft className="w-5 h-5" />
-                  </Button>
-                  <div>
-                    <h2 className="text-white font-semibold">{currentChannel?.name}</h2>
-                    <p className="text-white/60 text-sm">{playlist?.name}</p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handlePrevChannel}
-                    disabled={channelIndex === 0}
-                    className="text-white hover:bg-white/20 disabled:opacity-30"
-                  >
-                    <ChevronLeft className="w-5 h-5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleNextChannel}
-                    disabled={channels.length === 0 || channelIndex === channels.length - 1}
-                    className="text-white hover:bg-white/20 disabled:opacity-30"
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </Button>
-                </div>
-              </div>
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-40">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
+          </div>
+        )}
 
-            {/* Bottom bar */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+        {/* Error Overlay */}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
+            <div className="flex flex-col items-center gap-4 text-center px-6">
+              <AlertCircle className="w-12 h-12 text-destructive" />
+              <p className="text-white/90">{error}</p>
+              <Button onClick={handleRetry} variant="outline" size="sm">
+                <RefreshCw className={cn("w-4 h-4 mr-2", isRefreshing && "animate-spin")} />
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Controls Overlay */}
+        <div
+          className={cn(
+            "absolute inset-0 z-30 flex flex-col justify-between pointer-events-none transition-opacity duration-300",
+            showControls ? "opacity-100" : "opacity-0"
+          )}
+        >
+          {/* Top Bar */}
+          <div className="bg-gradient-to-b from-black/80 to-transparent p-3 pointer-events-auto">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="text-white hover:bg-white/20"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-white font-medium truncate">
+                  {currentChannel?.name || "Loading..."}
+                </h2>
+                {currentChannel?.group && (
+                  <p className="text-white/60 text-sm truncate">{currentChannel.group}</p>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRetry}
+                disabled={isRefreshing}
+                className="text-white hover:bg-white/20"
+              >
+                <RefreshCw className={cn("w-5 h-5", isRefreshing && "animate-spin")} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Bottom Bar */}
+          <div className="bg-gradient-to-t from-black/80 to-transparent p-3 pointer-events-auto">
+            <div className="flex items-center justify-between">
+              {/* Left Controls */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePrevChannel}
+                  disabled={channelIndex === 0}
+                  className="text-white hover:bg-white/20 disabled:opacity-30"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+                
+                {playerEngine === 'hlsjs' && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -716,6 +644,27 @@ const PlaylistWatch = () => {
                   >
                     {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                   </Button>
+                )}
+                
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleNextChannel}
+                  disabled={channelIndex >= channels.length - 1}
+                  className="text-white hover:bg-white/20 disabled:opacity-30"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              </div>
+
+              {/* Center Info */}
+              <div className="text-white/60 text-sm">
+                {channelIndex + 1} / {channels.length || '...'}
+              </div>
+
+              {/* Right Controls */}
+              <div className="flex items-center gap-1">
+                {playerEngine === 'hlsjs' && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -724,77 +673,98 @@ const PlaylistWatch = () => {
                   >
                     {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleRetry}
-                    disabled={isRefreshing}
-                    className="text-white hover:bg-white/20"
-                  >
-                    <RefreshCw className={cn("w-5 h-5", isRefreshing && "animate-spin")} />
-                  </Button>
-                </div>
+                )}
 
-                <div className="flex items-center gap-2">
-                  {/* Display Mode */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
-                        {displayMode === 'fit' && <RectangleHorizontal className="w-5 h-5" />}
-                        {displayMode === 'fill' && <Scan className="w-5 h-5" />}
-                        {displayMode === 'stretch' && <Move className="w-5 h-5" />}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleDisplayModeChange('fit')}>
-                        <RectangleHorizontal className="w-4 h-4 mr-2" />
-                        Fit {displayMode === 'fit' && '✓'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDisplayModeChange('fill')}>
-                        <Scan className="w-4 h-4 mr-2" />
-                        Fill {displayMode === 'fill' && '✓'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDisplayModeChange('stretch')}>
-                        <Move className="w-4 h-4 mr-2" />
-                        Stretch {displayMode === 'stretch' && '✓'}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                {/* Settings Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-white hover:bg-white/20"
+                    >
+                      <Settings className="w-5 h-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48 bg-zinc-900/95 border-white/10">
+                    {/* Player Engine */}
+                    <div className="px-2 py-1.5 text-xs text-white/50 font-medium">Player</div>
+                    <DropdownMenuItem
+                      onClick={() => handlePlayerEngineChange('hlsjs')}
+                      className={cn("text-white", playerEngine === 'hlsjs' && "bg-primary/20")}
+                    >
+                      HLS.js {playerEngine === 'hlsjs' && '✓'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handlePlayerEngineChange('clappr')}
+                      className={cn("text-white", playerEngine === 'clappr' && "bg-primary/20")}
+                    >
+                      Clappr {playerEngine === 'clappr' && '✓'}
+                    </DropdownMenuItem>
 
-                  {/* Quality selector */}
-                  {qualityLevels.length > 0 && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="text-white hover:bg-white/20 gap-1">
-                          <Settings className="w-4 h-4" />
-                          {getCurrentQualityLabel()}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={handleAutoQuality}>
+                    {playerEngine === 'hlsjs' && qualityLevels.length > 0 && (
+                      <>
+                        <div className="my-1 border-t border-white/10" />
+                        <div className="px-2 py-1.5 text-xs text-white/50 font-medium">
+                          Quality ({getCurrentQualityLabel()})
+                        </div>
+                        <DropdownMenuItem
+                          onClick={handleAutoQuality}
+                          className={cn("text-white", currentQuality === -1 && "bg-primary/20")}
+                        >
                           Auto {currentQuality === -1 && '✓'}
                         </DropdownMenuItem>
                         {qualityLevels.map((q) => (
-                          <DropdownMenuItem key={q.id} onClick={() => handleQualityChange(q.id)}>
+                          <DropdownMenuItem
+                            key={q.id}
+                            onClick={() => handleQualityChange(q.id)}
+                            className={cn("text-white", currentQuality === q.id && "bg-primary/20")}
+                          >
                             {q.label} {currentQuality === q.id && '✓'}
                           </DropdownMenuItem>
                         ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                      </>
+                    )}
 
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleFullscreen}
-                    className="text-white hover:bg-white/20"
-                  >
-                    {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-                  </Button>
-                </div>
+                    {playerEngine === 'hlsjs' && (
+                      <>
+                        <div className="my-1 border-t border-white/10" />
+                        <div className="px-2 py-1.5 text-xs text-white/50 font-medium">Display</div>
+                        <DropdownMenuItem
+                          onClick={() => handleDisplayModeChange('fit')}
+                          className={cn("text-white gap-2", displayMode === 'fit' && "bg-primary/20")}
+                        >
+                          <Scan className="w-4 h-4" /> Fit {displayMode === 'fit' && '✓'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleDisplayModeChange('fill')}
+                          className={cn("text-white gap-2", displayMode === 'fill' && "bg-primary/20")}
+                        >
+                          <RectangleHorizontal className="w-4 h-4" /> Fill {displayMode === 'fill' && '✓'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleDisplayModeChange('stretch')}
+                          className={cn("text-white gap-2", displayMode === 'stretch' && "bg-primary/20")}
+                        >
+                          <Move className="w-4 h-4" /> Stretch {displayMode === 'stretch' && '✓'}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleFullscreen}
+                  className="text-white hover:bg-white/20"
+                >
+                  {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+                </Button>
               </div>
             </div>
           </div>
+        </div>
       </div>
     </div>
   );

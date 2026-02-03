@@ -7,6 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -24,6 +31,12 @@ import {
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, ExternalLink, Copy } from 'lucide-react';
 
+const PLAYER_OPTIONS = [
+  { value: 'hlsjs', label: 'HLS.js' },
+  { value: 'clappr', label: 'Clappr' },
+  { value: 'iframe', label: 'Iframe' },
+];
+
 interface PlaylistForm {
   name: string;
   slug: string;
@@ -31,6 +44,7 @@ interface PlaylistForm {
   description: string;
   logo_url: string;
   display_order: number;
+  default_player: string;
 }
 
 const defaultForm: PlaylistForm = {
@@ -40,6 +54,7 @@ const defaultForm: PlaylistForm = {
   description: '',
   logo_url: '',
   display_order: 0,
+  default_player: 'hlsjs',
 };
 
 export function M3uPlaylistManager() {
@@ -90,6 +105,7 @@ export function M3uPlaylistManager() {
         description: playlist.description || '',
         logo_url: playlist.logo_url || '',
         display_order: playlist.display_order || 0,
+        default_player: playlist.default_player || 'hlsjs',
       });
     } else {
       setEditingId(null);
@@ -127,6 +143,7 @@ export function M3uPlaylistManager() {
         description: form.description.trim() || null,
         logo_url: form.logo_url.trim() || null,
         display_order: form.display_order,
+        default_player: form.default_player,
       };
 
       if (editingId) {
@@ -357,6 +374,27 @@ export function M3uPlaylistManager() {
                 value={form.display_order}
                 onChange={(e) => setForm(prev => ({ ...prev, display_order: parseInt(e.target.value) || 0 }))}
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="default_player">Default Player</Label>
+              <Select
+                value={form.default_player}
+                onValueChange={(value) => setForm(prev => ({ ...prev, default_player: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select player" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PLAYER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                HLS.js is recommended for most streams
+              </p>
             </div>
           </div>
           <DialogFooter>
