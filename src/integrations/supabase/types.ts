@@ -173,6 +173,7 @@ export type Database = {
       m3u_playlists: {
         Row: {
           created_at: string
+          default_player: string | null
           description: string | null
           display_order: number | null
           id: string
@@ -185,6 +186,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_player?: string | null
           description?: string | null
           display_order?: number | null
           id?: string
@@ -197,6 +199,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_player?: string | null
           description?: string | null
           display_order?: number | null
           id?: string
