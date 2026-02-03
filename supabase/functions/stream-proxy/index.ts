@@ -9,13 +9,17 @@ const corsHeaders = {
 // External proxy for geo-restricted streams (Bangladesh-based)
 const EXTERNAL_PROXY_BASE = 'https://tv.eplayhd.fun/proxy.php';
 
-// Domains that require external proxy (geo-restricted)
+// Domains that require external proxy (geo-restricted) - excluding aynascope as it needs direct with correct headers
 const GEO_RESTRICTED_DOMAINS = [
   'akamaized.net',
   'tapmad',
   'akamaicdn',
-  'aynascope.net',
 ];
+
+// Domains that need specific origin/referer override (like AynaOTT)
+const AYNA_DOMAINS = ['aynascope.net'];
+const AYNA_ORIGIN = 'https://ayna.oxo.lol';
+const AYNA_REFERER = 'https://ayna.oxo.lol/';
 
 interface ProxyError {
   error: string;
@@ -35,6 +39,10 @@ function createErrorResponse(error: ProxyError, statusCode: number = 500): Respo
 
 function isGeoRestricted(url: string): boolean {
   return GEO_RESTRICTED_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
+}
+
+function isAynaDomain(url: string): boolean {
+  return AYNA_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
 }
 
 function buildExternalProxyUrl(streamUrl: string, referer: string, origin: string, userAgent: string): string {
@@ -142,17 +150,24 @@ serve(async (req) => {
     // Determine if we should use external proxy
     const shouldUseExternalProxy = useExternalProxy || isGeoRestricted(streamUrl);
     
+    // Check if this is an Ayna domain - needs special origin/referer
+    const isAyna = isAynaDomain(streamUrl);
+    
     // Build headers for the upstream request
     const requestUa = req.headers.get('user-agent') || '';
     const requestRange = req.headers.get('range') || '';
     const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+    
+    // Override origin/referer for Ayna domains
+    const effectiveOrigin = isAyna ? AYNA_ORIGIN : origin;
+    const effectiveReferer = isAyna ? AYNA_REFERER : referer;
 
     let fetchUrl: string;
     let upstreamHeaders: Record<string, string>;
 
     if (shouldUseExternalProxy) {
       // Use external proxy for geo-restricted content
-      fetchUrl = buildExternalProxyUrl(streamUrl, referer, origin, effectiveUserAgent);
+      fetchUrl = buildExternalProxyUrl(streamUrl, effectiveReferer, effectiveOrigin, effectiveUserAgent);
       upstreamHeaders = {
         'User-Agent': effectiveUserAgent,
       };
@@ -165,11 +180,11 @@ serve(async (req) => {
         'User-Agent': effectiveUserAgent,
       };
       
-      if (referer) {
-        upstreamHeaders['Referer'] = referer;
+      if (effectiveReferer) {
+        upstreamHeaders['Referer'] = effectiveReferer;
       }
-      if (origin) {
-        upstreamHeaders['Origin'] = origin;
+      if (effectiveOrigin) {
+        upstreamHeaders['Origin'] = effectiveOrigin;
       }
       if (customCookie) {
         upstreamHeaders['Cookie'] = customCookie;
@@ -189,6 +204,10 @@ serve(async (req) => {
         } catch (e) {
           console.warn('Failed to parse custom_headers JSON:', e);
         }
+      }
+      
+      if (isAyna) {
+        console.log(`[${new Date().toISOString()}] Using AYNA override: Origin=${effectiveOrigin}, Referer=${effectiveReferer}`);
       }
       
       console.log(`[${new Date().toISOString()}] Proxying DIRECT: ${streamUrl}`);
@@ -331,10 +350,10 @@ serve(async (req) => {
       const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').replace(/^http:/, 'https:');
       const proxyBaseUrl = `${supabaseUrl}/functions/v1/stream-proxy`;
       
-      // Build query params to forward - include external proxy flag if needed
+      // Build query params to forward - use effective (potentially overridden) values
       const forwardParams = new URLSearchParams();
-      forwardParams.set('referer', referer);
-      forwardParams.set('origin', origin);
+      forwardParams.set('referer', effectiveReferer);
+      forwardParams.set('origin', effectiveOrigin);
       if (customUserAgent) forwardParams.set('user_agent', customUserAgent);
       if (customCookie) forwardParams.set('cookie', customCookie);
       if (customHeadersJson) forwardParams.set('custom_headers', customHeadersJson);
