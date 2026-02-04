@@ -125,10 +125,17 @@ function validateAndSanitizeResponse(data: unknown): { matches: Record<string, u
   }
   
   if (Array.isArray(d.matches)) {
+    const seenMatchIds = new Set<number>();
+    
     for (const match of d.matches) {
       const validated = validateMatch(match);
       if (validated) {
-        result.matches.push(validated);
+        const matchId = validated.match_id as number;
+        // Skip duplicates based on match_id
+        if (!seenMatchIds.has(matchId)) {
+          seenMatchIds.add(matchId);
+          result.matches.push(validated);
+        }
       }
     }
   }
