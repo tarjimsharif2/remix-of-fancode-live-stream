@@ -154,23 +154,22 @@ serve(async (req) => {
     let effectiveOrigin = origin;
     let effectiveReferer = referer;
     
-    if (!effectiveOrigin || !effectiveReferer) {
-      try {
-        const streamUrlObj = new URL(streamUrl);
-        const autoOrigin = streamUrlObj.origin; // e.g. https://tvsen6.aynascope.net
-        
-        // Special case: aynascope.net requires aynaott.com as origin/referer
-        if (streamUrlObj.hostname.includes('aynascope.net')) {
-          if (!effectiveOrigin) effectiveOrigin = 'https://aynaott.com';
-          if (!effectiveReferer) effectiveReferer = 'https://aynaott.com/';
-        } else {
-          // For other domains, use the stream URL's own domain
-          if (!effectiveOrigin) effectiveOrigin = autoOrigin;
-          if (!effectiveReferer) effectiveReferer = autoOrigin + '/';
-        }
-      } catch (_) {
-        // ignore URL parse errors
+    try {
+      const streamUrlObj = new URL(streamUrl);
+      
+      // Special case: aynascope.net ALWAYS requires aynaott.com as origin/referer
+      // regardless of what the frontend sends
+      if (streamUrlObj.hostname.includes('aynascope.net')) {
+        effectiveOrigin = 'https://aynaott.com';
+        effectiveReferer = 'https://aynaott.com/';
+      } else if (!effectiveOrigin || !effectiveReferer) {
+        // For other domains, auto-detect from stream URL if not provided
+        const autoOrigin = streamUrlObj.origin;
+        if (!effectiveOrigin) effectiveOrigin = autoOrigin;
+        if (!effectiveReferer) effectiveReferer = autoOrigin + '/';
       }
+    } catch (_) {
+      // ignore URL parse errors
     }
 
     let fetchUrl: string;
@@ -224,7 +223,7 @@ serve(async (req) => {
       upstreamHeaders['Range'] = requestRange;
     }
 
-    console.log(`Headers: Referer=${referer || 'none'}, Origin=${origin || 'none'}, UA=${customUserAgent ? 'custom' : 'default'}, Cookie=${customCookie ? 'set' : 'none'}, ExternalProxy=${shouldUseExternalProxy}`);
+    console.log(`Headers: Referer=${effectiveReferer || 'none'}, Origin=${effectiveOrigin || 'none'}, UA=${customUserAgent ? 'custom' : 'default'}, Cookie=${customCookie ? 'set' : 'none'}, ExternalProxy=${shouldUseExternalProxy}`);
 
     // Fetch the stream with timeout
     const controller = new AbortController();
