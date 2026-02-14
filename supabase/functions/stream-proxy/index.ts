@@ -158,8 +158,16 @@ serve(async (req) => {
       try {
         const streamUrlObj = new URL(streamUrl);
         const autoOrigin = streamUrlObj.origin; // e.g. https://tvsen6.aynascope.net
-        if (!effectiveOrigin) effectiveOrigin = autoOrigin;
-        if (!effectiveReferer) effectiveReferer = autoOrigin + '/';
+        
+        // Special case: aynascope.net requires aynaott.com as origin/referer
+        if (streamUrlObj.hostname.includes('aynascope.net')) {
+          if (!effectiveOrigin) effectiveOrigin = 'https://aynaott.com';
+          if (!effectiveReferer) effectiveReferer = 'https://aynaott.com/';
+        } else {
+          // For other domains, use the stream URL's own domain
+          if (!effectiveOrigin) effectiveOrigin = autoOrigin;
+          if (!effectiveReferer) effectiveReferer = autoOrigin + '/';
+        }
       } catch (_) {
         // ignore URL parse errors
       }
