@@ -21,8 +21,8 @@ const TOFFEE_DOMAINS = ['toffeelive.com', 'toffee'];
 
 // Domains that need specific origin/referer override (like AynaOTT)
 const AYNA_DOMAINS = ['aynascope.net'];
-const AYNA_ORIGIN = 'https://ayna.oxo.lol';
-const AYNA_REFERER = 'https://ayna.oxo.lol/';
+const AYNA_ORIGIN = 'https://aynaott.com';
+const AYNA_REFERER = 'https://aynaott.com/';
 
 interface ProxyError {
   error: string;
