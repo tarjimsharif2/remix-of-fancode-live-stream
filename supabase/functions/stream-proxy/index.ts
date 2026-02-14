@@ -9,11 +9,12 @@ const corsHeaders = {
 // External proxy for geo-restricted streams (Bangladesh-based)
 const EXTERNAL_PROXY_BASE = 'https://tv.eplayhd.fun/proxy.php';
 
-// Domains that require external proxy (geo-restricted) - excluding aynascope as it needs direct with correct headers
+// Domains that require external proxy (geo-restricted)
 const GEO_RESTRICTED_DOMAINS = [
   'akamaized.net',
   'tapmad',
   'akamaicdn',
+  'aynascope.net',
 ];
 
 // Toffee domains - need cookie but work with direct proxy
