@@ -9,7 +9,7 @@ const corsHeaders = {
 // External proxy for geo-restricted streams (Bangladesh-based)
 const EXTERNAL_PROXY_BASE = 'https://tv.eplayhd.fun/proxy.php';
 
-// Domains that require external proxy (geo-restricted) - excluding aynascope as it needs direct with correct headers
+// Domains that require external proxy (geo-restricted)
 const GEO_RESTRICTED_DOMAINS = [
   'akamaized.net',
   'tapmad',
@@ -147,7 +147,7 @@ serve(async (req) => {
     // Build headers for the upstream request
     const requestUa = req.headers.get('user-agent') || '';
     const requestRange = req.headers.get('range') || '';
-    const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+    let effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     
     // Auto-detect origin/referer from stream URL if not provided by frontend
     // This ensures any JSON source works without needing explicit header fields
@@ -158,10 +158,12 @@ serve(async (req) => {
       const streamUrlObj = new URL(streamUrl);
       
       // Special case: aynascope.net ALWAYS requires aynaott.com as origin/referer
-      // regardless of what the frontend sends
+      // and a specific User-Agent to avoid IP blocking
       if (streamUrlObj.hostname.includes('aynascope.net')) {
         effectiveOrigin = 'https://aynaott.com';
         effectiveReferer = 'https://aynaott.com/';
+        // Use ExoPlayer UA (what AynaOTT app uses) to avoid server-side UA blocking
+        effectiveUserAgent = 'ExoPlayer/2.19.1 (Linux; Android 13) ExoPlayerLib/2.19.1';
       } else if (!effectiveOrigin || !effectiveReferer) {
         // For other domains, auto-detect from stream URL if not provided
         const autoOrigin = streamUrlObj.origin;
