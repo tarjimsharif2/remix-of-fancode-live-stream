@@ -162,16 +162,16 @@ serve(async (req) => {
     const requestRange = req.headers.get('range') || '';
     const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     
-    // Override origin/referer for Ayna domains (only for direct proxy, not external)
-    const effectiveOrigin = (isAyna && !shouldUseExternalProxy) ? AYNA_ORIGIN : origin;
-    const effectiveReferer = (isAyna && !shouldUseExternalProxy) ? AYNA_REFERER : referer;
+    // Override origin/referer for Ayna domains
+    const effectiveOrigin = isAyna ? AYNA_ORIGIN : origin;
+    const effectiveReferer = isAyna ? AYNA_REFERER : referer;
 
     let fetchUrl: string;
     let upstreamHeaders: Record<string, string>;
 
     if (shouldUseExternalProxy) {
-      // Use external proxy for geo-restricted content - don't pass origin/referer overrides
-      fetchUrl = buildExternalProxyUrl(streamUrl, '', '', effectiveUserAgent);
+      // Use external proxy for geo-restricted content
+      fetchUrl = buildExternalProxyUrl(streamUrl, effectiveReferer, effectiveOrigin, effectiveUserAgent);
       upstreamHeaders = {
         'User-Agent': effectiveUserAgent,
       };
