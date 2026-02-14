@@ -5,15 +5,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// M3U source URL - this auto-updates with fresh tokens
-const AYNA_M3U_URL = "https://raw.githubusercontent.com/sm-monirulislam/AynaOTT-auto-update-playlist/refs/heads/main/AynaOTT.m3u";
+// AynaOTT JSON API - provides fresh streams with valid tokens
+// Using JSON instead of M3U for better data structure and consistent URLs
+const AYNA_JSON_URL = "https://raw.githubusercontent.com/sm-monirulislam/AynaOTT-auto-update-playlist/refs/heads/main/AynaOTT.json";
 
-interface M3uChannel {
-  name: string;
-  url: string;
-  logo?: string;
-  group?: string;
-}
 
 interface JsonChannel {
   id: string;
@@ -26,57 +21,8 @@ interface JsonChannel {
   url: string;
   stream_url: string;
   streams: { name: string; url: string }[];
-}
-
-function parseM3u(content: string): M3uChannel[] {
-  const lines = content.split("\n");
-  const channels: M3uChannel[] = [];
-  let current: Partial<M3uChannel> = {};
-
-  for (const line of lines) {
-    const t = line.trim();
-
-    if (t.startsWith("#EXTINF:")) {
-      const nameMatch = t.match(/,(.+)$/);
-      const logoMatch = t.match(/tvg-logo="([^"]+)"/);
-      const groupMatch = t.match(/group-title="([^"]+)"/);
-
-      current = {
-        name: nameMatch ? nameMatch[1].trim() : "Unknown Channel",
-        logo: logoMatch ? logoMatch[1] : undefined,
-        group: groupMatch ? groupMatch[1] : undefined,
-      };
-      continue;
-    }
-
-    if (t && !t.startsWith("#") && current.name) {
-      current.url = t;
-      channels.push(current as M3uChannel);
-      current = {};
-    }
-  }
-
-  return channels;
-}
-
-function convertToJsonFormat(channels: M3uChannel[]): JsonChannel[] {
-  return channels.map((channel, index) => ({
-    id: `ayna-${index}`,
-    name: channel.name,
-    title: channel.name,
-    category: channel.group || "General",
-    thumbnail: channel.logo || "",
-    logo: channel.logo || "",
-    status: "live",
-    url: channel.url,
-    stream_url: channel.url,
-    streams: [
-      {
-        name: "Primary",
-        url: channel.url,
-      },
-    ],
-  }));
+  origin?: string;
+  referer?: string;
 }
 
 serve(async (req) => {
@@ -85,20 +31,20 @@ serve(async (req) => {
   }
 
   try {
-    // Add cache-busting timestamp to always get fresh M3U
+    // Add cache-busting timestamp to always get fresh JSON
     const cacheBust = Date.now();
-    const m3uUrl = `${AYNA_M3U_URL}?_t=${cacheBust}`;
+    const jsonUrl = `${AYNA_JSON_URL}?_t=${cacheBust}`;
 
-    console.log(`[${new Date().toISOString()}] Fetching AynaOTT M3U from: ${m3uUrl}`);
+    console.log(`[${new Date().toISOString()}] Fetching AynaOTT JSON from: ${jsonUrl}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const response = await fetch(m3uUrl, {
+    const response = await fetch(jsonUrl, {
       signal: controller.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "*/*",
+        "Accept": "application/json",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
       },
@@ -107,17 +53,37 @@ serve(async (req) => {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch M3U: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch JSON: ${response.status} ${response.statusText}`);
     }
 
-    const m3uContent = await response.text();
+    const jsonContent = await response.json() as any;
     
-    // Parse M3U
-    const channels = parseM3u(m3uContent);
-    console.log(`Parsed ${channels.length} channels from M3U`);
+    // Handle both array format and object with 'response' key
+    let channels = Array.isArray(jsonContent) ? jsonContent : (jsonContent.response || []);
+    
+    console.log(`Fetched ${channels.length} channels from AynaOTT JSON`);
 
-    // Convert to JSON format compatible with json_sources
-    const jsonChannels = convertToJsonFormat(channels);
+    // Ensure each channel has required fields and AynaOTT headers
+    const jsonChannels: JsonChannel[] = channels.map((channel: any, index: number) => ({
+      id: channel.id || `ayna-${index}`,
+      name: channel.name || channel.title || "Unknown",
+      title: channel.title || channel.name || "Unknown",
+      category: channel.category || "General",
+      thumbnail: channel.thumbnail || "",
+      logo: channel.logo || channel.thumbnail || "",
+      status: channel.status || "live",
+      url: channel.url || channel.stream_url || "",
+      stream_url: channel.stream_url || channel.url || "",
+      streams: channel.streams || [
+        {
+          name: "Primary",
+          url: channel.stream_url || channel.url || "",
+        },
+      ],
+      // AynaOTT streams require these headers for aynascope.net domains
+      origin: "https://aynaott.com",
+      referer: "https://aynaott.com/",
+    }));
 
     // Group by category for the response
     const groupedByCategory = jsonChannels.reduce((acc, channel) => {
