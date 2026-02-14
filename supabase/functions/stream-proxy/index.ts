@@ -149,9 +149,21 @@ serve(async (req) => {
     const requestRange = req.headers.get('range') || '';
     const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     
-    // Use origin/referer from request params directly (passed by frontend from JSON source data)
-    const effectiveOrigin = origin;
-    const effectiveReferer = referer;
+    // Auto-detect origin/referer from stream URL if not provided by frontend
+    // This ensures any JSON source works without needing explicit header fields
+    let effectiveOrigin = origin;
+    let effectiveReferer = referer;
+    
+    if (!effectiveOrigin || !effectiveReferer) {
+      try {
+        const streamUrlObj = new URL(streamUrl);
+        const autoOrigin = streamUrlObj.origin; // e.g. https://tvsen6.aynascope.net
+        if (!effectiveOrigin) effectiveOrigin = autoOrigin;
+        if (!effectiveReferer) effectiveReferer = autoOrigin + '/';
+      } catch (_) {
+        // ignore URL parse errors
+      }
+    }
 
     let fetchUrl: string;
     let upstreamHeaders: Record<string, string>;
