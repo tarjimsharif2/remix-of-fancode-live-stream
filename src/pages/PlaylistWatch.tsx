@@ -149,27 +149,13 @@ const PlaylistWatch = () => {
     }
   }, []);
 
-  // Check if the URL is from aynascope.net - these have IP restrictions and must play directly
-  const isAynascopeUrl = useCallback((url: string) => {
-    try {
-      return new URL(url).hostname.includes('aynascope.net');
-    } catch {
-      return false;
-    }
-  }, []);
-
   const getStreamUrl = useCallback((url: string) => {
-    // aynascope.net streams have IP restrictions - play directly without proxy
-    if (isAynascopeUrl(url)) {
-      console.log('AynaOTT stream detected, playing directly (no proxy):', url);
-      return url;
-    }
-    // Always use proxy for HLS streams to handle CORS and tokens
+    // Always use proxy for ALL streams to handle CORS, tokens, and geo-restrictions
     if (url.includes('.m3u8') || isHttpUrl(url)) {
       return getProxyUrl(url);
     }
     return url;
-  }, [getProxyUrl, isHttpUrl, isAynascopeUrl]);
+  }, [getProxyUrl, isHttpUrl]);
 
   const lockLandscape = useCallback(async () => {
     try {
@@ -289,7 +275,6 @@ const PlaylistWatch = () => {
     console.log('Initializing HLS with:', streamUrl);
 
     if (Hls.isSupported()) {
-      const isAyna = isAynascopeUrl(currentChannel.url);
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
@@ -301,13 +286,6 @@ const PlaylistWatch = () => {
         liveDurationInfinity: true,
         startLevel: -1,
         capLevelToPlayerSize: false,
-        // For aynascope.net direct streams, set custom headers
-        ...(isAyna ? {
-          xhrSetup: (xhr: XMLHttpRequest) => {
-            // Browser won't let us set Origin/Referer, but we can try
-            // The key is that the request comes from user's IP directly
-          },
-        } : {}),
       });
 
       hlsRef.current = hls;
