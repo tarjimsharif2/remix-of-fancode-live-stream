@@ -19,11 +19,6 @@ const GEO_RESTRICTED_DOMAINS = [
 // Toffee domains - need cookie but work with direct proxy
 const TOFFEE_DOMAINS = ['toffeelive.com', 'toffee'];
 
-// Domains that need specific origin/referer override (like AynaOTT)
-const AYNA_DOMAINS = ['aynascope.net'];
-const AYNA_ORIGIN = 'https://aynaott.com';
-const AYNA_REFERER = 'https://aynaott.com/';
-
 interface ProxyError {
   error: string;
   code: string;
@@ -42,10 +37,6 @@ function createErrorResponse(error: ProxyError, statusCode: number = 500): Respo
 
 function isGeoRestricted(url: string): boolean {
   return GEO_RESTRICTED_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
-}
-
-function isAynaDomain(url: string): boolean {
-  return AYNA_DOMAINS.some(domain => url.toLowerCase().includes(domain.toLowerCase()));
 }
 
 function buildExternalProxyUrl(streamUrl: string, referer: string, origin: string, userAgent: string): string {
@@ -153,17 +144,14 @@ serve(async (req) => {
     // Determine if we should use external proxy
     const shouldUseExternalProxy = useExternalProxy || isGeoRestricted(streamUrl);
     
-    // Check if this is an Ayna domain - needs special origin/referer
-    const isAyna = isAynaDomain(streamUrl);
-    
     // Build headers for the upstream request
     const requestUa = req.headers.get('user-agent') || '';
     const requestRange = req.headers.get('range') || '';
     const effectiveUserAgent = customUserAgent || requestUa || 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
     
-    // Override origin/referer for Ayna domains
-    const effectiveOrigin = isAyna ? AYNA_ORIGIN : origin;
-    const effectiveReferer = isAyna ? AYNA_REFERER : referer;
+    // Use origin/referer from request params directly (passed by frontend from JSON source data)
+    const effectiveOrigin = origin;
+    const effectiveReferer = referer;
 
     let fetchUrl: string;
     let upstreamHeaders: Record<string, string>;
@@ -207,10 +195,6 @@ serve(async (req) => {
         } catch (e) {
           console.warn('Failed to parse custom_headers JSON:', e);
         }
-      }
-      
-      if (isAyna) {
-        console.log(`[${new Date().toISOString()}] Using AYNA override: Origin=${effectiveOrigin}, Referer=${effectiveReferer}`);
       }
       
       console.log(`[${new Date().toISOString()}] Proxying DIRECT: ${streamUrl}`);
