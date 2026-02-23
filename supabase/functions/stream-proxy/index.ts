@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 // External proxy for geo-restricted streams (Bangladesh-based)
-const EXTERNAL_PROXY_BASE = 'https://tv.eplayhd.fun/proxy.php';
+const EXTERNAL_PROXY_BASE = 'https://tv.eplayhd.fun/proxybd.php';
 
 // Domains that require external proxy (geo-restricted)
 const GEO_RESTRICTED_DOMAINS = [
