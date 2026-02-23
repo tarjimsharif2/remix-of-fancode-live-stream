@@ -14,6 +14,7 @@ const GEO_RESTRICTED_DOMAINS = [
   'akamaized.net',
   'tapmad',
   'akamaicdn',
+  '198.195.239.50',
 ];
 
 // Toffee domains - need cookie but work with direct proxy
@@ -179,11 +180,15 @@ serve(async (req) => {
 
     if (shouldUseExternalProxy) {
       // Use external proxy for geo-restricted content
-      fetchUrl = buildExternalProxyUrl(streamUrl, effectiveReferer, effectiveOrigin, effectiveUserAgent);
+      // For IP-based URLs, don't send referer/origin to external proxy (may cause rejection)
+      const isIpBasedUrl = /\d+\.\d+\.\d+\.\d+/.test(streamUrl);
+      const extReferer = isIpBasedUrl ? '' : effectiveReferer;
+      const extOrigin = isIpBasedUrl ? '' : effectiveOrigin;
+      fetchUrl = buildExternalProxyUrl(streamUrl, extReferer, extOrigin, effectiveUserAgent);
       upstreamHeaders = {
         'User-Agent': effectiveUserAgent,
       };
-      console.log(`[${new Date().toISOString()}] Using EXTERNAL PROXY for: ${streamUrl}`);
+      console.log(`[${new Date().toISOString()}] Using EXTERNAL PROXY for: ${streamUrl} (IP-based: ${isIpBasedUrl})`);
       console.log(`External proxy URL: ${fetchUrl}`);
     } else {
       // Direct fetch
@@ -295,10 +300,16 @@ serve(async (req) => {
       // Try to get response body for more details
       try {
         const errorBody = await response.text();
-        if (errorBody && errorBody.length < 500) {
+        if (errorBody && errorBody.length < 2000) {
           errorDetails += `. Response: ${errorBody}`;
         }
+        console.error(`Upstream error response body: ${errorBody?.substring(0, 1000)}`);
       } catch {}
+      
+      console.error(`Full error details: ${errorDetails}`);
+      if (shouldUseExternalProxy) {
+        console.error(`External proxy URL was: ${fetchUrl}`);
+      }
 
       const errorCodes: Record<number, string> = {
         400: 'UPSTREAM_BAD_REQUEST',
