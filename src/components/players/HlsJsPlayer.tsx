@@ -98,14 +98,23 @@ export const HlsJsPlayer = ({
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        backBufferLength: 30,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 30,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 4,
+        backBufferLength: 10,
+        maxBufferLength: 5,
+        maxMaxBufferLength: 15,
+        maxBufferSize: 0,
+        maxBufferHole: 0.5,
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 3,
         liveDurationInfinity: true,
-        startLevel: -1,
-        capLevelToPlayerSize: false,
+        startLevel: 0,
+        capLevelToPlayerSize: true,
+        manifestLoadingTimeOut: 8000,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 8000,
+        fragLoadingTimeOut: 10000,
+        startFragPrefetch: true,
+        testBandwidth: false,
+        abrEwmaDefaultEstimate: 500000,
       });
 
       hlsRef.current = hls;
@@ -254,8 +263,13 @@ export const HlsJsPlayer = ({
     >
       {/* Loading */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none bg-black">
+          <div className="relative w-16 h-16 mb-4">
+            <div className="absolute inset-0 border-4 border-primary/20 rounded-full" />
+            <div className="absolute inset-0 border-4 border-transparent border-t-primary rounded-full animate-spin" />
+            <div className="absolute inset-2 border-4 border-transparent border-b-primary/60 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
+          </div>
+          <p className="text-white/60 text-sm animate-pulse">Connecting...</p>
         </div>
       )}
 
