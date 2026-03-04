@@ -38,12 +38,22 @@ export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps)
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        manifestLoadingTimeOut: 15000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 15000,
-        fragLoadingTimeOut: 20000,
+        backBufferLength: 10,
+        maxBufferLength: 5,
+        maxMaxBufferLength: 15,
+        maxBufferSize: 0,
+        maxBufferHole: 0.5,
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 3,
+        startLevel: 0,
+        capLevelToPlayerSize: true,
+        manifestLoadingTimeOut: 8000,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 8000,
+        fragLoadingTimeOut: 10000,
+        startFragPrefetch: true,
+        testBandwidth: false,
+        abrEwmaDefaultEstimate: 500000,
       });
 
       hlsRef.current = hls;
@@ -175,9 +185,13 @@ export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps)
         {/* Video */}
         <div className="relative aspect-video bg-secondary">
           {isLoading && !error && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-              <p className="text-muted-foreground text-sm">Connecting to stream...</p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
+              <div className="relative w-16 h-16 mb-4">
+                <div className="absolute inset-0 border-4 border-primary/20 rounded-full" />
+                <div className="absolute inset-0 border-4 border-transparent border-t-primary rounded-full animate-spin" />
+                <div className="absolute inset-2 border-4 border-transparent border-b-primary/60 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
+              </div>
+              <p className="text-white/60 text-sm animate-pulse">Connecting...</p>
             </div>
           )}
 
