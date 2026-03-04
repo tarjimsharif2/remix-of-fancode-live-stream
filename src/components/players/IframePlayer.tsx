@@ -96,17 +96,6 @@ export const IframePlayer = ({
         />
       )}
 
-      {/* Controls overlay */}
-      <div className="absolute top-2 right-2 z-20">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleFullscreen}
-          className="text-white bg-black/50 hover:bg-black/70"
-        >
-          {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-        </Button>
-      </div>
     </div>
   );
 };
