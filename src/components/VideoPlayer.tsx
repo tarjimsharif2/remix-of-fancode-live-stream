@@ -185,8 +185,8 @@ export const VideoPlayer = ({ streamUrl, matchName, onClose }: VideoPlayerProps)
         {/* Video */}
         <div className="relative aspect-video bg-secondary">
           {isLoading && !error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black">
-              <div className="w-8 h-8 border-3 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
             </div>
           )}
 
