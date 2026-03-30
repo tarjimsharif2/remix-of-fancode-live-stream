@@ -259,9 +259,8 @@ export const ClapprPlayer = ({
 
       {/* Loading */}
       {isLoading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-40">
-          <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <p className="text-white/70 text-sm">Loading stream...</p>
+        <div className="absolute inset-0 flex items-center justify-center bg-black z-40">
+          <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
@@ -290,7 +289,7 @@ export const ClapprPlayer = ({
       {/* Player */}
       <div
         ref={playerContainerRef}
-        className="w-full h-full"
+        className={cn("w-full h-full", isLoading && "opacity-0")}
         onClick={() => setShowControls(!showControls)}
       />
     </div>

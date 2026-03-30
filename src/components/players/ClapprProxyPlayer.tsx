@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 declare var Clappr: any;
 
@@ -181,13 +182,13 @@ export const ClapprProxyPlayer = ({
           (playerContainerRef as any).current = el;
           if (el) el.id = containerId;
         }}
-        className="w-full h-full" 
+        className={cn("w-full h-full", isLoading && "opacity-0")}
       />
 
       {/* Loading */}
       {isLoading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/90">
-          <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black">
+          <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
