@@ -125,6 +125,15 @@ export const UniversalPlayer = ({
     switch (playerType) {
       case 'clappr':
         return <ClapprPlayer key={playerKey} streamUrl={currentStream.url} />;
+      case 'clappr-proxy':
+        return (
+          <ClapprProxyPlayer
+            key={playerKey}
+            streamUrl={currentStream.url}
+            referer={proxyConfig?.referer}
+            origin={proxyConfig?.origin}
+          />
+        );
       case 'hlsjs':
         return (
           <HlsJsPlayer
