@@ -259,8 +259,8 @@ export const ClapprPlayer = ({
 
       {/* Loading */}
       {isLoading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-40">
-          <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin mb-4" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-40">
+          <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
           <p className="text-white/70 text-sm">Loading stream...</p>
         </div>
       )}
