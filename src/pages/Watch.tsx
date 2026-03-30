@@ -540,7 +540,7 @@ const Watch = () => {
   }, []);
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
+    let timeout: ReturnType<typeof setTimeout>;
     
     const handleMouseMove = () => {
       setShowControls(true);
