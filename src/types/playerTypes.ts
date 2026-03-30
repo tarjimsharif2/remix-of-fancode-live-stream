@@ -15,6 +15,12 @@ export const PLAYER_CONFIGS: PlayerConfig[] = [
     icon: '🎬',
   },
   {
+    type: 'clappr-proxy',
+    label: 'Clappr Proxy',
+    description: 'Proxy player for restricted streams (CricHD/RoarZone)',
+    icon: '🛡️',
+  },
+  {
     type: 'hlsjs',
     label: 'HLS.js',
     description: 'Lightweight HLS player (like CricHD)',

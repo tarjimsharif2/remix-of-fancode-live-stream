@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { ClapprPlayer } from "./ClapprPlayer";
+import { ClapprProxyPlayer } from "./ClapprProxyPlayer";
 import { HlsJsPlayer } from "./HlsJsPlayer";
 import { IframePlayer } from "./IframePlayer";
 import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
