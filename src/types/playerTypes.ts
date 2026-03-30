@@ -1,4 +1,4 @@
-export type PlayerType = 'clappr' | 'hlsjs' | 'iframe' | 'native';
+export type PlayerType = 'clappr' | 'clappr-proxy' | 'hlsjs' | 'iframe' | 'native';
 
 export interface PlayerConfig {
   type: PlayerType;
@@ -13,6 +13,12 @@ export const PLAYER_CONFIGS: PlayerConfig[] = [
     label: 'Clappr',
     description: 'Default player with quality selection',
     icon: '🎬',
+  },
+  {
+    type: 'clappr-proxy',
+    label: 'Clappr Proxy',
+    description: 'Proxy player for restricted streams (CricHD/RoarZone)',
+    icon: '🛡️',
   },
   {
     type: 'hlsjs',

@@ -97,7 +97,7 @@ const Watch = () => {
   
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   const [streamUrl, setStreamUrl] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -540,7 +540,7 @@ const Watch = () => {
   }, []);
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
+    let timeout: ReturnType<typeof setTimeout>;
     
     const handleMouseMove = () => {
       setShowControls(true);
