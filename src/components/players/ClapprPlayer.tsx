@@ -32,7 +32,7 @@ export const ClapprPlayer = ({
 }: ClapprPlayerProps) => {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const retryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const retryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
