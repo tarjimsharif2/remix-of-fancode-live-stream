@@ -4,6 +4,7 @@ export interface CustomChannel {
   stream_url: string;
   logo_url: string | null;
   category: string;
+  player_type: string | null;
   custom_referer: string | null;
   custom_origin: string | null;
   custom_user_agent: string | null;
