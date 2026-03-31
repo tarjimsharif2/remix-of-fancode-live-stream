@@ -179,6 +179,7 @@ export function CustomChannelManager() {
       stream_url: form.stream_url.trim(),
       logo_url: form.logo_url.trim() || null,
       category: form.category.trim() || "general",
+      player_type: form.player_type || "clappr",
       custom_referer: form.custom_referer.trim() || null,
       custom_origin: form.custom_origin.trim() || null,
       custom_user_agent: form.custom_user_agent.trim() || null,
