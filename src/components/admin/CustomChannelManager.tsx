@@ -7,14 +7,6 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { PLAYER_CONFIGS } from "@/types/playerTypes";
-import {
   Table,
   TableBody,
   TableCell,
@@ -55,7 +47,6 @@ interface ChannelForm {
   stream_url: string;
   logo_url: string;
   category: string;
-  player_type: string;
   custom_referer: string;
   custom_origin: string;
   custom_user_agent: string;
@@ -69,7 +60,6 @@ const defaultForm: ChannelForm = {
   stream_url: "",
   logo_url: "",
   category: "general",
-  player_type: "clappr",
   custom_referer: "",
   custom_origin: "",
   custom_user_agent: "",
@@ -118,7 +108,6 @@ export function CustomChannelManager() {
         stream_url: channel.stream_url,
         logo_url: channel.logo_url || "",
         category: channel.category || "general",
-        player_type: channel.player_type || "clappr",
         custom_referer: channel.custom_referer || "",
         custom_origin: channel.custom_origin || "",
         custom_user_agent: channel.custom_user_agent || "",
@@ -179,7 +168,6 @@ export function CustomChannelManager() {
       stream_url: form.stream_url.trim(),
       logo_url: form.logo_url.trim() || null,
       category: form.category.trim() || "general",
-      player_type: form.player_type || "clappr",
       custom_referer: form.custom_referer.trim() || null,
       custom_origin: form.custom_origin.trim() || null,
       custom_user_agent: form.custom_user_agent.trim() || null,
@@ -414,26 +402,7 @@ export function CustomChannelManager() {
               </div>
             </div>
 
-            {/* Player Type */}
-            <div className="space-y-2">
-              <Label htmlFor="player_type">Default Player</Label>
-              <Select
-                value={form.player_type}
-                onValueChange={(value) => setForm({ ...form, player_type: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select player" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PLAYER_CONFIGS.map((config) => (
-                    <SelectItem key={config.type} value={config.type}>
-                      {config.icon} {config.label} — {config.description}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
+            {/* Custom Headers Section */}
             <Accordion type="single" collapsible defaultValue="headers">
               <AccordionItem value="headers">
                 <AccordionTrigger className="text-sm font-medium">
