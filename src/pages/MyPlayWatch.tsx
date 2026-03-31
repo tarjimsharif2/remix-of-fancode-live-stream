@@ -113,9 +113,6 @@ const MyPlayWatch = () => {
       const fetchedChannel = await fetchChannelData();
       if (fetchedChannel) {
         setChannel(fetchedChannel);
-        if (fetchedChannel.player_type) {
-          setPlayerType(fetchedChannel.player_type as PlayerType);
-        }
       }
       setChannelLoading(false);
     };
