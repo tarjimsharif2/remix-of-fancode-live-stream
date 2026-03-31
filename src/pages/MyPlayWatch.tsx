@@ -11,14 +11,11 @@ import {
   Maximize,
   Minimize,
   Settings,
-  Settings2,
   RefreshCw,
   AlertCircle,
   RectangleHorizontal,
   Scan,
   Move,
-  Check,
-  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
