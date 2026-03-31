@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
+import { PlayerType } from "@/types/playerTypes";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
