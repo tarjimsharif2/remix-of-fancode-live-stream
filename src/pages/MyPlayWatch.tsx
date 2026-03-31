@@ -644,57 +644,6 @@ const MyPlayWatch = () => {
             </h1>
           </div>
 
-          {/* Player Engine Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 px-3 rounded-lg backdrop-blur-sm gap-2"
-              >
-                <Settings2 className="w-4 h-4" />
-                <span className="text-sm">{getPlayerConfig(playerType).label}</span>
-                <ChevronDown className="w-4 h-4 opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-56 bg-zinc-900/95 backdrop-blur-lg border-white/10 shadow-2xl"
-              sideOffset={8}
-            >
-              <DropdownMenuLabel className="text-white/60 flex items-center gap-2">
-                <Settings2 className="w-4 h-4" />
-                Player Engine
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator className="bg-white/10" />
-              {PLAYER_CONFIGS.map((config) => {
-                const isSelected = playerType === config.type;
-                return (
-                  <DropdownMenuItem
-                    key={config.type}
-                    onClick={() => { setPlayerType(config.type); setPlayerKey(prev => prev + 1); }}
-                    className={cn(
-                      "text-white cursor-pointer rounded-md mx-1 my-0.5",
-                      "focus:bg-white/10 hover:bg-white/10",
-                      isSelected && "bg-primary/20"
-                    )}
-                  >
-                    <div className="flex items-center gap-3 w-full">
-                      {isSelected ? (
-                        <Check className="w-4 h-4 text-primary flex-shrink-0" />
-                      ) : (
-                        <span className="w-4 h-4 flex items-center justify-center opacity-60">{config.icon}</span>
-                      )}
-                      <div className="flex flex-col min-w-0">
-                        <span className={cn("font-medium", isSelected && "text-primary")}>{config.label}</span>
-                        <span className="text-xs text-white/50 truncate">{config.description}</span>
-                      </div>
-                    </div>
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
 
         {/* Center play button */}
