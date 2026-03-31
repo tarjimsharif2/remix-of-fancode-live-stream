@@ -554,6 +554,11 @@ const MyPlayWatch = () => {
     );
   }
 
+  // Derive effective player type from saved channel data
+  const isHlsStream = /\.m3u8($|\?)/i.test(channel.stream_url);
+  const savedPlayerType = (channel.player_type as PlayerType) || 'hlsjs';
+  const effectivePlayerType: PlayerType = isHlsStream && savedPlayerType === 'clappr-proxy' ? 'hlsjs' : savedPlayerType;
+
   return (
     <div
       ref={containerRef}
