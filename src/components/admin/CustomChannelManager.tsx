@@ -414,7 +414,26 @@ export function CustomChannelManager() {
               </div>
             </div>
 
-            {/* Custom Headers Section */}
+            {/* Player Type */}
+            <div className="space-y-2">
+              <Label htmlFor="player_type">Default Player</Label>
+              <Select
+                value={form.player_type}
+                onValueChange={(value) => setForm({ ...form, player_type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select player" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PLAYER_CONFIGS.map((config) => (
+                    <SelectItem key={config.type} value={config.type}>
+                      {config.icon} {config.label} — {config.description}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <Accordion type="single" collapsible defaultValue="headers">
               <AccordionItem value="headers">
                 <AccordionTrigger className="text-sm font-medium">
