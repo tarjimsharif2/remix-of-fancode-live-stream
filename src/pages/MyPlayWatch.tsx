@@ -67,7 +67,6 @@ const MyPlayWatch = () => {
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
-  const [playerType, setPlayerType] = useState<PlayerType>('hlsjs');
   const [playerKey, setPlayerKey] = useState(0);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
