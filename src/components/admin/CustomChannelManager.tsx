@@ -69,7 +69,7 @@ const defaultForm: ChannelForm = {
   stream_url: "",
   logo_url: "",
   category: "general",
-  player_type: "hlsjs",
+  player_type: "clappr",
   custom_referer: "",
   custom_origin: "",
   custom_user_agent: "",

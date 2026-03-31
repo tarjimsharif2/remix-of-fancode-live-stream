@@ -11,21 +11,26 @@ import {
   Maximize,
   Minimize,
   Settings,
+  Settings2,
   RefreshCw,
   AlertCircle,
   RectangleHorizontal,
   Scan,
   Move,
+  Check,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { PlayerType } from "@/types/playerTypes";
+import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
@@ -62,6 +67,7 @@ const MyPlayWatch = () => {
   const [currentQuality, setCurrentQuality] = useState<number>(-1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [streamMode, setStreamMode] = useState<'proxy' | 'direct'>('proxy');
+  const [playerType, setPlayerType] = useState<PlayerType>('hlsjs');
   const [playerKey, setPlayerKey] = useState(0);
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>(() => {
     const saved = localStorage.getItem('videoDisplayMode');
@@ -108,6 +114,9 @@ const MyPlayWatch = () => {
       const fetchedChannel = await fetchChannelData();
       if (fetchedChannel) {
         setChannel(fetchedChannel);
+        if (fetchedChannel.player_type) {
+          setPlayerType(fetchedChannel.player_type as PlayerType);
+        }
       }
       setChannelLoading(false);
     };
@@ -549,11 +558,6 @@ const MyPlayWatch = () => {
     );
   }
 
-  // Derive effective player type from saved channel data
-  const isHlsStream = /\.m3u8($|\?)/i.test(channel.stream_url);
-  const savedPlayerType = (channel.player_type as PlayerType) || 'hlsjs';
-  const effectivePlayerType: PlayerType = isHlsStream && savedPlayerType === 'clappr-proxy' ? 'hlsjs' : savedPlayerType;
-
   return (
     <div
       ref={containerRef}
@@ -592,8 +596,8 @@ const MyPlayWatch = () => {
         </div>
       )}
 
-      {/* Player - conditional based on effectivePlayerType */}
-      {effectivePlayerType === 'hlsjs' ? (
+      {/* Player - conditional based on playerType */}
+      {playerType === 'hlsjs' ? (
         <video
           ref={videoRef}
           className={cn("w-full h-full", getDisplayModeClass())}
@@ -601,18 +605,18 @@ const MyPlayWatch = () => {
           muted={isMuted}
           autoPlay
         />
-      ) : effectivePlayerType === 'clappr' ? (
+      ) : playerType === 'clappr' ? (
         <ClapprPlayer key={playerKey} streamUrl={channel.stream_url} />
-      ) : effectivePlayerType === 'clappr-proxy' ? (
+      ) : playerType === 'clappr-proxy' ? (
         <ClapprProxyPlayer
           key={playerKey}
           streamUrl={channel.stream_url}
           referer={channel.custom_referer || undefined}
           origin={channel.custom_origin || undefined}
         />
-      ) : effectivePlayerType === 'iframe' ? (
+      ) : playerType === 'iframe' ? (
         <IframePlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
-      ) : effectivePlayerType === 'native' ? (
+      ) : playerType === 'native' ? (
         <video key={playerKey} src={channel.stream_url} className="w-full h-full" controls autoPlay playsInline />
       ) : (
         <video
@@ -639,6 +643,57 @@ const MyPlayWatch = () => {
             </h1>
           </div>
 
+          {/* Player Engine Selector */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="bg-white/10 hover:bg-white/20 text-white border-0 h-9 px-3 rounded-lg backdrop-blur-sm gap-2"
+              >
+                <Settings2 className="w-4 h-4" />
+                <span className="text-sm">{getPlayerConfig(playerType).label}</span>
+                <ChevronDown className="w-4 h-4 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-56 bg-zinc-900/95 backdrop-blur-lg border-white/10 shadow-2xl"
+              sideOffset={8}
+            >
+              <DropdownMenuLabel className="text-white/60 flex items-center gap-2">
+                <Settings2 className="w-4 h-4" />
+                Player Engine
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator className="bg-white/10" />
+              {PLAYER_CONFIGS.map((config) => {
+                const isSelected = playerType === config.type;
+                return (
+                  <DropdownMenuItem
+                    key={config.type}
+                    onClick={() => { setPlayerType(config.type); setPlayerKey(prev => prev + 1); }}
+                    className={cn(
+                      "text-white cursor-pointer rounded-md mx-1 my-0.5",
+                      "focus:bg-white/10 hover:bg-white/10",
+                      isSelected && "bg-primary/20"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 w-full">
+                      {isSelected ? (
+                        <Check className="w-4 h-4 text-primary flex-shrink-0" />
+                      ) : (
+                        <span className="w-4 h-4 flex items-center justify-center opacity-60">{config.icon}</span>
+                      )}
+                      <div className="flex flex-col min-w-0">
+                        <span className={cn("font-medium", isSelected && "text-primary")}>{config.label}</span>
+                        <span className="text-xs text-white/50 truncate">{config.description}</span>
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Center play button */}
