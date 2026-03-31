@@ -596,14 +596,37 @@ const MyPlayWatch = () => {
         </div>
       )}
 
-      {/* Video player */}
-      <video
-        ref={videoRef}
-        className={cn("w-full h-full", getDisplayModeClass())}
-        playsInline
-        muted={isMuted}
-        autoPlay
-      />
+      {/* Player - conditional based on playerType */}
+      {playerType === 'hlsjs' ? (
+        <video
+          ref={videoRef}
+          className={cn("w-full h-full", getDisplayModeClass())}
+          playsInline
+          muted={isMuted}
+          autoPlay
+        />
+      ) : playerType === 'clappr' ? (
+        <ClapprPlayer key={playerKey} streamUrl={channel.stream_url} />
+      ) : playerType === 'clappr-proxy' ? (
+        <ClapprProxyPlayer
+          key={playerKey}
+          streamUrl={channel.stream_url}
+          referer={channel.custom_referer || undefined}
+          origin={channel.custom_origin || undefined}
+        />
+      ) : playerType === 'iframe' ? (
+        <IframePlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
+      ) : playerType === 'native' ? (
+        <video key={playerKey} src={channel.stream_url} className="w-full h-full" controls autoPlay playsInline />
+      ) : (
+        <video
+          ref={videoRef}
+          className={cn("w-full h-full", getDisplayModeClass())}
+          playsInline
+          muted={isMuted}
+          autoPlay
+        />
+      )}
 
       {/* Controls overlay */}
       <div
