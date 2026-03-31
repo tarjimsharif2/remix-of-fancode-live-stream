@@ -11,20 +11,30 @@ import {
   Maximize,
   Minimize,
   Settings,
+  Settings2,
   RefreshCw,
   AlertCircle,
   RectangleHorizontal,
   Scan,
   Move,
+  Check,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
+import { ClapprPlayer } from "@/components/players/ClapprPlayer";
+import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
+import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
+import { IframePlayer } from "@/components/players/IframePlayer";
 
 interface QualityLevel {
   id: number;
