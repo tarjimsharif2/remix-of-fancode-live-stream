@@ -55,6 +55,7 @@ interface ChannelForm {
   stream_url: string;
   logo_url: string;
   category: string;
+  player_type: string;
   custom_referer: string;
   custom_origin: string;
   custom_user_agent: string;
