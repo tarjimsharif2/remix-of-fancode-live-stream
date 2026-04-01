@@ -10,6 +10,9 @@ interface ClapprProxyPlayerProps {
   poster?: string;
   referer?: string;
   origin?: string;
+  userAgent?: string;
+  cookie?: string;
+  customHeaders?: Record<string, string>;
   onError?: (error: string) => void;
   onReady?: () => void;
   onStuck?: () => void;
@@ -20,6 +23,9 @@ export const ClapprProxyPlayer = ({
   poster, 
   referer, 
   origin, 
+  userAgent,
+  cookie,
+  customHeaders,
   onError,
   onReady,
   onStuck 
@@ -74,11 +80,16 @@ export const ClapprProxyPlayer = ({
     let proxiedSrc = `${supabaseUrl}/functions/v1/stream-proxy?url=${encodeURIComponent(streamUrl)}&t=${Date.now()}`;
     if (referer) proxiedSrc += `&referer=${encodeURIComponent(referer)}`;
     if (origin) proxiedSrc += `&origin=${encodeURIComponent(origin)}`;
+    if (userAgent) proxiedSrc += `&user_agent=${encodeURIComponent(userAgent)}`;
+    if (cookie) proxiedSrc += `&cookie=${encodeURIComponent(cookie)}`;
+    if (customHeaders && Object.keys(customHeaders).length > 0) {
+      proxiedSrc += `&custom_headers=${encodeURIComponent(JSON.stringify(customHeaders))}`;
+    }
 
     try {
       const player = new Clappr.Player({
         source: proxiedSrc,
-        parentId: `#clappr-proxy-container-${container.id}`,
+        parent: container,
         autoPlay: true,
         muted: true,
         width: "100%",
@@ -131,7 +142,7 @@ export const ClapprProxyPlayer = ({
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, onStuck, onError, onReady]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, onStuck, onError, onReady]);
 
   // Initialize when script is loaded
   useEffect(() => {

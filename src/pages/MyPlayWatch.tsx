@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PlayerType } from "@/types/playerTypes";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
-
+import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
 
@@ -67,6 +67,7 @@ const MyPlayWatch = () => {
     const saved = localStorage.getItem('videoDisplayMode');
     return (saved as 'fit' | 'fill' | 'stretch') || 'stretch';
   });
+  const activePlayerType = (channel?.player_type as PlayerType) || 'hlsjs';
 
   // Fetch channel data by ID
   const fetchChannelData = useCallback(async (): Promise<CustomChannel | null> => {
@@ -388,6 +389,17 @@ const MyPlayWatch = () => {
   }, [channel, getStreamUrl, checkProxyAndPlay, switchToDirectMode, refreshAndRetry, streamMode]);
 
   useEffect(() => {
+    if (activePlayerType !== 'hlsjs') {
+      setIsLoading(false);
+      setIsRefreshing(false);
+      setError(null);
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      return;
+    }
+
     if (channel) {
       initPlayer();
     }
@@ -399,7 +411,7 @@ const MyPlayWatch = () => {
       }
       unlockOrientation();
     };
-  }, [channel, initPlayer, unlockOrientation]);
+  }, [channel, initPlayer, unlockOrientation, activePlayerType]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -549,10 +561,8 @@ const MyPlayWatch = () => {
     );
   }
 
-  // Derive effective player type from saved channel data
-  // clappr-proxy uses the same HLS.js player but forces proxy mode (already handled by initPlayer)
-  const savedPlayerType = (channel.player_type as PlayerType) || 'hlsjs';
-  const effectivePlayerType: PlayerType = savedPlayerType === 'clappr-proxy' ? 'hlsjs' : savedPlayerType;
+  // Respect the exact player saved from admin
+  const effectivePlayerType: PlayerType = activePlayerType;
 
   return (
     <div
@@ -562,14 +572,14 @@ const MyPlayWatch = () => {
       onTouchStart={showControlsTemporarily}
     >
       {/* Loading state - minimal spinner only */}
-      {(isLoading || isRefreshing) && (
+      {effectivePlayerType === 'hlsjs' && (isLoading || isRefreshing) && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <div className="w-10 h-10 border-3 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
       {/* Error state */}
-      {error && !channelLoading && (
+      {effectivePlayerType === 'hlsjs' && error && !channelLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="text-center text-white max-w-md px-4">
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-500" />
@@ -603,6 +613,16 @@ const MyPlayWatch = () => {
         />
       ) : effectivePlayerType === 'clappr' ? (
         <ClapprPlayer key={playerKey} streamUrl={channel.stream_url} />
+      ) : effectivePlayerType === 'clappr-proxy' ? (
+        <ClapprProxyPlayer
+          key={playerKey}
+          streamUrl={channel.stream_url}
+          referer={channel.custom_referer || undefined}
+          origin={channel.custom_origin || undefined}
+          userAgent={channel.custom_user_agent || undefined}
+          cookie={channel.custom_cookie || undefined}
+          customHeaders={channel.custom_headers || undefined}
+        />
       ) : effectivePlayerType === 'iframe' ? (
         <IframePlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
       ) : effectivePlayerType === 'native' ? (
@@ -618,7 +638,7 @@ const MyPlayWatch = () => {
       )}
 
       {/* Controls overlay */}
-      <div
+      {effectivePlayerType === 'hlsjs' && <div
         className={cn(
           "absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/50 transition-opacity duration-300",
           showControls ? "opacity-100" : "opacity-0 pointer-events-none"
@@ -739,7 +759,7 @@ const MyPlayWatch = () => {
             )}
           </Button>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };

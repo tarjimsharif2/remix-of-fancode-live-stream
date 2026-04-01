@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { ShieldX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
+import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
 import { PlayerType } from "@/types/playerTypes";
@@ -64,6 +65,12 @@ const LiveSourceWatch = () => {
   const [defaultPlayerType, setDefaultPlayerType] = useState<PlayerType>('clappr');
   const [iframeWrapperUrl, setIframeWrapperUrl] = useState<string>('');
   const [sourceLinkPrefixes, setSourceLinkPrefixes] = useState<Record<string, unknown>>({});
+  const [proxyConfig, setProxyConfig] = useState<{
+    referer?: string;
+    origin?: string;
+    userAgent?: string;
+    cookie?: string;
+  }>({});
 
   // Check iframe access and load settings
   useEffect(() => {
@@ -198,10 +205,10 @@ const LiveSourceWatch = () => {
           
           if (links.length > 0 && links[linkIndex]) {
             const selectedLink = links[linkIndex];
-            let streamUrl = selectedLink.url;
-            
             // Get link-specific config (prefix + player)
             const linkConfig = getLinkConfig(linkConfigs, linkNumber);
+            const resolvedPlayerType = (linkConfig.player || defaultPlayerType) as PlayerType;
+            let streamUrl = selectedLink.url;
             
             // Check if URL needs proxying (has headers or is m3u8)
             const needsProxy = selectedLink.referer || selectedLink.origin || 
@@ -209,14 +216,21 @@ const LiveSourceWatch = () => {
               (streamUrl.includes('.m3u8') && !streamUrl.includes('youtube') && 
                !streamUrl.startsWith(import.meta.env.VITE_SUPABASE_URL));
             
-            if (needsProxy) {
+            if (resolvedPlayerType === 'clappr-proxy') {
+              setProxyConfig({
+                referer: selectedLink.referer,
+                origin: selectedLink.origin,
+                userAgent: selectedLink.userAgent,
+                cookie: selectedLink.cookie,
+              });
+            } else if (needsProxy) {
               // Route through stream-proxy for HLS streams
               const proxyBaseUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stream-proxy`;
               const proxyParams = new URLSearchParams();
               proxyParams.set('url', streamUrl);
               if (selectedLink.referer) proxyParams.set('referer', selectedLink.referer);
               if (selectedLink.origin) proxyParams.set('origin', selectedLink.origin);
-              if (selectedLink.userAgent) proxyParams.set('userAgent', selectedLink.userAgent);
+              if (selectedLink.userAgent) proxyParams.set('user_agent', selectedLink.userAgent);
               if (selectedLink.cookie) proxyParams.set('cookie', selectedLink.cookie);
               streamUrl = `${proxyBaseUrl}?${proxyParams.toString()}`;
             } else if (linkConfig.prefix) {
@@ -225,11 +239,7 @@ const LiveSourceWatch = () => {
             }
             
             // Apply link-specific player if configured, otherwise use source default
-            if (linkConfig.player) {
-              setPlayerType(linkConfig.player);
-            } else {
-              setPlayerType(defaultPlayerType);
-            }
+            setPlayerType(resolvedPlayerType);
             
             console.log('Final stream URL:', streamUrl);
             setCurrentStreamUrl(streamUrl);
@@ -262,6 +272,16 @@ const LiveSourceWatch = () => {
     switch (playerType) {
       case 'clappr':
         return <ClapprPlayer streamUrl={currentStreamUrl} />;
+      case 'clappr-proxy':
+        return (
+          <ClapprProxyPlayer
+            streamUrl={currentStreamUrl}
+            referer={proxyConfig.referer}
+            origin={proxyConfig.origin}
+            userAgent={proxyConfig.userAgent}
+            cookie={proxyConfig.cookie}
+          />
+        );
       case 'hlsjs':
         return <HlsJsPlayer streamUrl={currentStreamUrl} title={matchTitle} />;
       case 'iframe':
