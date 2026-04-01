@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PlayerType } from "@/types/playerTypes";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
-
+import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
 
@@ -549,10 +549,9 @@ const MyPlayWatch = () => {
     );
   }
 
-  // Derive effective player type from saved channel data
-  // clappr-proxy uses the same HLS.js player but forces proxy mode (already handled by initPlayer)
+  // Respect the exact player saved from admin
   const savedPlayerType = (channel.player_type as PlayerType) || 'hlsjs';
-  const effectivePlayerType: PlayerType = savedPlayerType === 'clappr-proxy' ? 'hlsjs' : savedPlayerType;
+  const effectivePlayerType: PlayerType = savedPlayerType;
 
   return (
     <div
@@ -603,6 +602,13 @@ const MyPlayWatch = () => {
         />
       ) : effectivePlayerType === 'clappr' ? (
         <ClapprPlayer key={playerKey} streamUrl={channel.stream_url} />
+      ) : effectivePlayerType === 'clappr-proxy' ? (
+        <ClapprProxyPlayer
+          key={playerKey}
+          streamUrl={channel.stream_url}
+          referer={channel.custom_referer || undefined}
+          origin={channel.custom_origin || undefined}
+        />
       ) : effectivePlayerType === 'iframe' ? (
         <IframePlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
       ) : effectivePlayerType === 'native' ? (
