@@ -118,7 +118,7 @@ export function CustomChannelManager() {
         stream_url: channel.stream_url,
         logo_url: channel.logo_url || "",
         category: channel.category || "general",
-        player_type: channel.player_type || "clappr",
+        player_type: channel.player_type || "hlsjs",
         custom_referer: channel.custom_referer || "",
         custom_origin: channel.custom_origin || "",
         custom_user_agent: channel.custom_user_agent || "",
