@@ -550,9 +550,9 @@ const MyPlayWatch = () => {
   }
 
   // Derive effective player type from saved channel data
-  const isHlsStream = /\.m3u8($|\?)/i.test(channel.stream_url);
+  // clappr-proxy uses the same HLS.js player but forces proxy mode (already handled by initPlayer)
   const savedPlayerType = (channel.player_type as PlayerType) || 'hlsjs';
-  const effectivePlayerType: PlayerType = isHlsStream && savedPlayerType === 'clappr-proxy' ? 'hlsjs' : savedPlayerType;
+  const effectivePlayerType: PlayerType = savedPlayerType === 'clappr-proxy' ? 'hlsjs' : savedPlayerType;
 
   return (
     <div
