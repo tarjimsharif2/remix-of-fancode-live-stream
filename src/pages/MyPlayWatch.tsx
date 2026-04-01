@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PlayerType } from "@/types/playerTypes";
 import { ClapprPlayer } from "@/components/players/ClapprPlayer";
-import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
+
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
 
