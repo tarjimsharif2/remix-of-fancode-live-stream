@@ -603,13 +603,6 @@ const MyPlayWatch = () => {
         />
       ) : effectivePlayerType === 'clappr' ? (
         <ClapprPlayer key={playerKey} streamUrl={channel.stream_url} />
-      ) : effectivePlayerType === 'clappr-proxy' ? (
-        <ClapprProxyPlayer
-          key={playerKey}
-          streamUrl={channel.stream_url}
-          referer={channel.custom_referer || undefined}
-          origin={channel.custom_origin || undefined}
-        />
       ) : effectivePlayerType === 'iframe' ? (
         <IframePlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
       ) : effectivePlayerType === 'native' ? (
