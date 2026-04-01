@@ -205,11 +205,10 @@ const LiveSourceWatch = () => {
           
           if (links.length > 0 && links[linkIndex]) {
             const selectedLink = links[linkIndex];
-            const resolvedPlayerType = (linkConfig.player || defaultPlayerType) as PlayerType;
-            let streamUrl = selectedLink.url;
-
             // Get link-specific config (prefix + player)
             const linkConfig = getLinkConfig(linkConfigs, linkNumber);
+            const resolvedPlayerType = (linkConfig.player || defaultPlayerType) as PlayerType;
+            let streamUrl = selectedLink.url;
             
             // Check if URL needs proxying (has headers or is m3u8)
             const needsProxy = selectedLink.referer || selectedLink.origin || 
@@ -279,6 +278,8 @@ const LiveSourceWatch = () => {
             streamUrl={currentStreamUrl}
             referer={proxyConfig.referer}
             origin={proxyConfig.origin}
+            userAgent={proxyConfig.userAgent}
+            cookie={proxyConfig.cookie}
           />
         );
       case 'hlsjs':

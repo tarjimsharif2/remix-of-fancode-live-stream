@@ -89,7 +89,7 @@ export const ClapprProxyPlayer = ({
     try {
       const player = new Clappr.Player({
         source: proxiedSrc,
-        parentId: `#clappr-proxy-container-${container.id}`,
+        parent: container,
         autoPlay: true,
         muted: true,
         width: "100%",
