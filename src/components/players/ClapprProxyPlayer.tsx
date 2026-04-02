@@ -41,7 +41,6 @@ export const ClapprProxyPlayer = ({
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const userPausedRef = useRef(false);
 
-  // ── Fullscreen এ logo fix ──
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
@@ -77,7 +76,6 @@ export const ClapprProxyPlayer = ({
     };
   }, []);
 
-  // ── Clappr script load ──
   useEffect(() => {
     if (typeof Clappr !== 'undefined') { setScriptLoaded(true); return; }
     const script = document.createElement('script');
@@ -124,7 +122,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true, // ✅ muted দিয়ে init করো — browser autoplay block করবে না
+        mute: true, // ✅ muted দিয়ে init — browser block করবে না
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -158,6 +156,11 @@ export const ClapprProxyPlayer = ({
             onReady?.();
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
+            // ✅ mobile এ autoPlay শুধু config এ দিলে হয় না
+            // explicit play() call করতে হয়
+            setTimeout(() => {
+              try { player.play(); } catch (e) {}
+            }, 200);
           },
           onPlay: () => {
             setIsLoading(false);
@@ -187,33 +190,21 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
-      // ✅ PLAYER_PLAY event এ play().then() দিয়ে unmute
-      // playing state এ থাকলে browser volume change block করে না
+      // ✅ playing state এ আছে — শুধু unmute করো
+      // video.play() আর call করো না, already playing
       player.on(Clappr.Events.PLAYER_PLAY, () => {
-        const video = container.querySelector('video') as HTMLVideoElement | null;
-        if (!video) return;
-        const playPromise = video.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              video.muted = false;
-              video.volume = 1;
-            })
-            .catch(() => {
-              // autoplay blocked — muted থাকবে, কিছু করার নেই
-            });
-        } else {
-          // পুরনো browser — সরাসরি চেষ্টা করো
+        setTimeout(() => {
+          const video = container.querySelector('video') as HTMLVideoElement | null;
+          if (!video) return;
           video.muted = false;
           video.volume = 1;
-        }
+        }, 100);
       });
 
-      // ✅ video element detect হলে muted + playsInline নিশ্চিত করো
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
-          video.muted = true; // শুরুতে muted, PLAYER_PLAY এ unmute হবে
+          video.muted = true;
           video.playsInline = true;
           applyVideoStretch(container);
           videoWatcher.disconnect();
@@ -235,11 +226,9 @@ export const ClapprProxyPlayer = ({
     };
   }, [scriptLoaded, initPlayer]);
 
-  // ── Stuck detection ──
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
-
     const checkStuck = setInterval(() => {
       const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
       if (!video) return;
@@ -259,7 +248,6 @@ export const ClapprProxyPlayer = ({
         }
       }
     }, 1000);
-
     return () => clearInterval(checkStuck);
   }, [initPlayer, isLoading, onStuck]);
 
