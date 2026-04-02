@@ -121,9 +121,13 @@ export const ClapprProxyPlayer = ({
     }
   }, []);
 
-  // ✅ FIX: video.play() সরিয়ে দেওয়া হয়েছে — শুধু unmute করে
-  // onPause event fire হওয়ার আগে play() call হলে PC তে pause কাজ করে না
+  // ✅ FIX: একবার interact হলে আর কিছু করে না
+  // Clappr কে নিজের play/pause toggle করতে দাও
   const tryUnmuteFromGesture = useCallback(() => {
+    if (hasInteractedRef.current) return;
+
+    hasInteractedRef.current = true;
+
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
 
@@ -138,18 +142,12 @@ export const ClapprProxyPlayer = ({
     if (video) {
       video.muted = false;
       video.volume = 1;
-
-      // ✅ শুধু প্রথমবার interaction এ play() call করো (muted autoplay unlock)
-      // পরবর্তী click গুলোতে Clappr নিজেই handle করবে
-      if (!hasInteractedRef.current) {
-        hasInteractedRef.current = true;
-        // onPause কে আগে fire হওয়ার সুযোগ দাও, তারপর check করো
-        setTimeout(() => {
-          if (!userPausedRef.current && video.paused) {
-            video.play().catch(() => {});
-          }
-        }, 100);
-      }
+      // onPause event আগে fire হওয়ার সুযোগ দাও
+      setTimeout(() => {
+        if (!userPausedRef.current && video.paused) {
+          video.play().catch(() => {});
+        }
+      }, 100);
     }
   }, []);
 
@@ -161,7 +159,7 @@ export const ClapprProxyPlayer = ({
     const container = playerContainerRef.current;
     container.innerHTML = '';
     userPausedRef.current = false;
-    hasInteractedRef.current = false; // ✅ reinit এ reset করো
+    hasInteractedRef.current = false; // ✅ reinit এ reset
     setError(null);
     setIsLoading(true);
 
@@ -224,7 +222,6 @@ export const ClapprProxyPlayer = ({
             tryAutoplayWithUnmute();
           },
           onPause: () => {
-            // ✅ User intentionally paused — track করো
             userPausedRef.current = true;
           },
           onBuffer: () => setIsLoading(true),
