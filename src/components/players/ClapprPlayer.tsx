@@ -48,7 +48,6 @@ export const ClapprProxyPlayer = ({
         (document as any).webkitFullscreenElement ||
         (document as any).mozFullScreenElement;
 
-      // Clappr video নিজে fullscreen হলে — exit করে wrapper কে fullscreen করো
       if (fsEl && fsEl.tagName === 'VIDEO') {
         const exitFs =
           document.exitFullscreen?.bind(document) ||
@@ -67,7 +66,6 @@ export const ClapprProxyPlayer = ({
         return;
       }
 
-      // Logo move করো
       const logo = logoRef.current;
       if (!logo) return;
 
@@ -333,20 +331,32 @@ export const ClapprProxyPlayer = ({
       )}
 
       <style>{`
-        /* ✅ শুধু video stretch — control এ কোনো হাত নেই */
-        #${containerId} [data-player],
-        #${containerId} [data-player] > div {
+        /* ✅ Step 1: [data-player] কে relative করো — এটাই controls এর anchor */
+        #${containerId} [data-player] {
+          position: relative !important;
           width: 100% !important;
           height: 100% !important;
+          overflow: hidden !important;
         }
 
+        /* ✅ Step 2: video stretch — শুধু এটুকুই */
         #${containerId} video {
+          object-fit: fill !important;
           width: 100% !important;
           height: 100% !important;
-          object-fit: fill !important;
         }
 
-        /* ✅ Fullscreen এ wrapper ও video stretch */
+        /* ✅ Step 3: .media-control কে নিচে আটকাও — ভেতরে হাত নেই */
+        #${containerId} .media-control {
+          position: absolute !important;
+          top: auto !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+        }
+
+        /* ✅ Fullscreen — same rules */
         :fullscreen #${containerId} [data-player],
         :-webkit-full-screen #${containerId} [data-player],
         :-moz-full-screen #${containerId} [data-player] {
@@ -360,6 +370,16 @@ export const ClapprProxyPlayer = ({
           width: 100vw !important;
           height: 100vh !important;
           object-fit: fill !important;
+        }
+
+        :fullscreen #${containerId} .media-control,
+        :-webkit-full-screen #${containerId} .media-control,
+        :-moz-full-screen #${containerId} .media-control {
+          position: fixed !important;
+          top: auto !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
         }
       `}</style>
     </div>
