@@ -56,31 +56,52 @@ export const ClapprProxyPlayer = ({
     document.head.appendChild(script);
   }, []);
 
-  const tryAutoplay = useCallback(() => {
+  // ✅ নতুন ফাংশন: unmuted play try করে, fail হলে muted চালু করে তারপর unmute
+  const tryAutoplayWithUnmute = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
 
-    try {
-      player?.configure?.({ mute: true });
-      player?.mute?.();
-      player?.play?.();
-    } catch (err) {
-      console.warn('ClapprProxy autoplay failed:', err);
-    }
+    if (!video) return;
 
-    if (video) {
-      video.muted = true;
-      video.autoplay = true;
-      video.playsInline = true;
-      const playPromise = video.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch((err) => {
-          console.warn('ClapprProxy video autoplay failed:', err);
+    video.muted = false;
+    video.volume = 1;
+    video.playsInline = true;
+    video.autoplay = true;
+
+    const playPromise = video.play();
+
+    if (playPromise) {
+      playPromise
+        .then(() => {
+          // সফল! Clappr কেও unmute করো
+          try {
+            player?.configure?.({ mute: false });
+            player?.unmute?.();
+            player?.setVolume?.(100);
+          } catch {}
+        })
+        .catch(() => {
+          // Browser block করলে — muted দিয়ে চালু করো
+          video.muted = true;
+          video.play()
+            .then(() => {
+              // muted চললে ৫০০ms পর unmute try
+              setTimeout(() => {
+                video.muted = false;
+                video.volume = 1;
+                try {
+                  player?.configure?.({ mute: false });
+                  player?.unmute?.();
+                  player?.setVolume?.(100);
+                } catch {}
+              }, 500);
+            })
+            .catch(() => {});
         });
-      }
     }
   }, []);
 
+  // ✅ Click/tap এ unmute (fallback for strict browsers like Safari iOS)
   const tryUnmuteFromGesture = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
@@ -133,7 +154,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: false,
+        mute: false, // ✅ শুরু থেকেই unmuted রাখো
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -167,13 +188,16 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
+            // ✅ tryAutoplayWithUnmute ব্যবহার করো
             requestAnimationFrame(() => {
-              tryAutoplay();
+              tryAutoplayWithUnmute();
             });
           },
           onPlay: () => {
             setIsLoading(false);
             setError(null);
+            // ✅ play শুরু হলেও unmute enforce করো
+            tryAutoplayWithUnmute();
           },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => setIsLoading(false),
@@ -197,7 +221,7 @@ export const ClapprProxyPlayer = ({
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplay]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute]);
 
   useEffect(() => {
     if (scriptLoaded) {
