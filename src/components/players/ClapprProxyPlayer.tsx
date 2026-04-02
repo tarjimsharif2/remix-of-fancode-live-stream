@@ -34,57 +34,10 @@ export const ClapprProxyPlayer = ({
 }: ClapprProxyPlayerProps) => {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const logoRef = useRef<HTMLImageElement>(null);         // ✅ logo ref
-  const logoOriginalParentRef = useRef<HTMLElement>(null); // ✅ original parent track
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isStretched] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
-
-  // ✅ Fullscreen change handler — logo কে fullscreen element এ নিয়ে যাও
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const logo = logoRef.current;
-      if (!logo) return;
-
-      const fsElement =
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement;
-
-      if (fsElement) {
-        // Fullscreen হলে logo কে fullscreen element এ append করো
-        logoOriginalParentRef.current = logo.parentElement as HTMLElement;
-        fsElement.appendChild(logo);
-
-        // Fullscreen এ logo style fix
-        logo.style.position = 'fixed';
-        logo.style.top = '12px';
-        logo.style.right = '12px';
-        logo.style.zIndex = '2147483647'; // সর্বোচ্চ z-index
-      } else {
-        // Fullscreen exit হলে original জায়গায় ফেরত দাও
-        if (logoOriginalParentRef.current) {
-          logoOriginalParentRef.current.appendChild(logo);
-        }
-        // Style reset
-        logo.style.position = '';
-        logo.style.top = '';
-        logo.style.right = '';
-        logo.style.zIndex = '';
-      }
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-    };
-  }, []);
 
   useEffect(() => {
     if (typeof Clappr !== 'undefined') {
@@ -103,6 +56,8 @@ export const ClapprProxyPlayer = ({
     document.head.appendChild(script);
   }, []);
 
+  // ✅ KEY TRICK: muted দিয়ে play() → .then() এর ভেতরেই সাথে সাথে unmute
+  // Chrome Android play() শুরু হলে volume change allow করে
   const tryAutoplayWithUnmute = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
@@ -110,12 +65,13 @@ export const ClapprProxyPlayer = ({
 
     video.playsInline = true;
     video.autoplay = true;
-    video.muted = true;
+    video.muted = true; // প্রথমে muted — play() guarantee করতে
 
     const playPromise = video.play();
     if (playPromise) {
       playPromise
         .then(() => {
+          // ✅ play শুরু হওয়ার সাথে সাথেই unmute — Chrome এটা block করে না
           video.muted = false;
           video.volume = 1;
           try {
@@ -130,6 +86,7 @@ export const ClapprProxyPlayer = ({
     }
   }, []);
 
+  // ✅ User gesture এ unmute (Safari iOS fallback)
   const tryUnmuteFromGesture = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
@@ -182,7 +139,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true,
+        mute: true, // ✅ Clappr muted দিয়ে শুরু করুক — আমরা পরে unmute করব
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -216,6 +173,7 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
+            // ✅ onReady তে unmute trick চালাও
             requestAnimationFrame(() => {
               tryAutoplayWithUnmute();
             });
@@ -223,6 +181,7 @@ export const ClapprProxyPlayer = ({
           onPlay: () => {
             setIsLoading(false);
             setError(null);
+            // ✅ onPlay তেও চালাও — double insurance
             tryAutoplayWithUnmute();
           },
           onBuffer: () => setIsLoading(true),
@@ -303,10 +262,8 @@ export const ClapprProxyPlayer = ({
         className={cn('w-full h-full', isLoading && 'opacity-0')}
       />
 
-      {/* ✅ logoRef যুক্ত করা হয়েছে */}
       {!error && (
         <img
-          ref={logoRef}
           src={CLAPPR_PROXY_LOGO_URL}
           alt="Player logo"
           className="pointer-events-none absolute right-3 top-3 z-30 w-14 select-none sm:w-16"
