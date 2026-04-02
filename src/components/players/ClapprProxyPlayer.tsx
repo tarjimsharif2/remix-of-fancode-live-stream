@@ -39,7 +39,7 @@ export const ClapprProxyPlayer = ({
   const initPlayerRef = useRef<() => void>(() => {});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isPaused, setIsPaused] = useState(false); // ✅ pause overlay state
+  const [isPaused, setIsPaused] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
   useEffect(() => {
@@ -203,10 +203,6 @@ export const ClapprProxyPlayer = ({
             applyVideoStretch(container);
             tryAutoplayWithUnmute();
           },
-          // ✅ pause হলে custom overlay দেখাও — Clappr এর resume bypass করো
-          onPause: () => {
-            setIsPaused(true);
-          },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => {
             setIsLoading(false);
@@ -226,10 +222,24 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
+      // ✅ Native video events — Clappr onPause এর চেয়ে বেশি reliable
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
           applyVideoStretch(container);
+
+          video.addEventListener('pause', () => {
+            setIsPaused(true);
+          });
+          video.addEventListener('play', () => {
+            setIsPaused(false);
+          });
+          video.addEventListener('playing', () => {
+            setIsPaused(false);
+            setIsLoading(false);
+            applyVideoStretch(container);
+          });
+
           videoWatcher.disconnect();
         }
       });
@@ -313,7 +323,7 @@ export const ClapprProxyPlayer = ({
         </div>
       )}
 
-      {/* ✅ Paused overlay — click করলে stream fresh reload হবে */}
+      {/* ✅ Pause overlay — native pause event এ trigger হয় */}
       {isPaused && !error && !isLoading && (
         <div
           className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 cursor-pointer"
