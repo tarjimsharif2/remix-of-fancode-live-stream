@@ -38,19 +38,18 @@ export const ClapprProxyPlayer = ({
   const logoOriginalParentRef = useRef<HTMLElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isStretched] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
+  // user যদি manually pause করে সেটা track করতে
+  const userPausedRef = useRef(false);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
       if (!logo) return;
-
       const fsElement =
         document.fullscreenElement ||
         (document as any).webkitFullscreenElement ||
         (document as any).mozFullScreenElement;
-
       if (fsElement) {
         logoOriginalParentRef.current = logo.parentElement as HTMLElement;
         fsElement.appendChild(logo);
@@ -68,11 +67,9 @@ export const ClapprProxyPlayer = ({
         logo.style.zIndex = '';
       }
     };
-
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
@@ -81,31 +78,33 @@ export const ClapprProxyPlayer = ({
   }, []);
 
   useEffect(() => {
-    if (typeof Clappr !== 'undefined') {
-      setScriptLoaded(true);
-      return;
-    }
-
+    if (typeof Clappr !== 'undefined') { setScriptLoaded(true); return; }
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/@clappr/player@latest/dist/clappr.min.js';
     script.async = true;
     script.onload = () => setScriptLoaded(true);
-    script.onerror = () => {
-      setError('Failed to load player script.');
-      setIsLoading(false);
-    };
+    script.onerror = () => { setError('Failed to load player script.'); setIsLoading(false); };
     document.head.appendChild(script);
+  }, []);
+
+  // ✅ শুধু video tag এ stretch apply করো
+  const applyVideoStretch = useCallback((container: HTMLElement) => {
+    const video = container.querySelector('video') as HTMLVideoElement | null;
+    if (!video) return;
+    video.style.setProperty('object-fit', 'fill', 'important');
+    video.style.setProperty('width', '100%', 'important');
+    video.style.setProperty('height', '100%', 'important');
+    video.style.setProperty('position', 'absolute', 'important');
+    video.style.setProperty('inset', '0', 'important');
   }, []);
 
   const tryAutoplayWithUnmute = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
     if (!video) return;
-
     video.playsInline = true;
     video.autoplay = true;
     video.muted = true;
-
     const playPromise = video.play();
     if (playPromise) {
       playPromise
@@ -118,45 +117,33 @@ export const ClapprProxyPlayer = ({
             player?.setVolume?.(100);
           } catch {}
         })
-        .catch((err) => {
-          console.warn('ClapprProxy autoplay failed:', err);
-        });
+        .catch((err) => console.warn('ClapprProxy autoplay failed:', err));
     }
   }, []);
 
   const tryUnmuteFromGesture = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
-
     try {
       player?.configure?.({ mute: false });
       player?.unmute?.();
       player?.setVolume?.(100);
-    } catch (err) {
-      console.warn('ClapprProxy unmute failed:', err);
-    }
-
+    } catch (err) { console.warn('ClapprProxy unmute failed:', err); }
     if (video) {
       video.muted = false;
       video.volume = 1;
-      const playPromise = video.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(() => {});
-      }
+      video.play().catch(() => {});
     }
   }, []);
 
   const initPlayer = useCallback(() => {
     if (!playerContainerRef.current || typeof Clappr === 'undefined') return;
 
-    if (playerRef.current) {
-      playerRef.current.destroy();
-      playerRef.current = null;
-    }
+    if (playerRef.current) { playerRef.current.destroy(); playerRef.current = null; }
 
     const container = playerContainerRef.current;
     container.innerHTML = '';
-
+    userPausedRef.current = false;
     setError(null);
     setIsLoading(true);
 
@@ -166,9 +153,8 @@ export const ClapprProxyPlayer = ({
     if (origin) proxiedSrc += `&origin=${encodeURIComponent(origin)}`;
     if (userAgent) proxiedSrc += `&user_agent=${encodeURIComponent(userAgent)}`;
     if (cookie) proxiedSrc += `&cookie=${encodeURIComponent(cookie)}`;
-    if (customHeaders && Object.keys(customHeaders).length > 0) {
+    if (customHeaders && Object.keys(customHeaders).length > 0)
       proxiedSrc += `&custom_headers=${encodeURIComponent(JSON.stringify(customHeaders))}`;
-    }
 
     try {
       const player = new Clappr.Player({
@@ -200,9 +186,7 @@ export const ClapprProxyPlayer = ({
             manifestLoadingMaxRetry: 10,
             levelLoadingRetryDelay: 1000,
             levelLoadingMaxRetry: 10,
-            xhrSetup: (xhr: XMLHttpRequest) => {
-              xhr.withCredentials = false;
-            },
+            xhrSetup: (xhr: XMLHttpRequest) => { xhr.withCredentials = false; },
           },
         },
         events: {
@@ -210,63 +194,82 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
-            requestAnimationFrame(() => {
-              tryAutoplayWithUnmute();
-            });
+            // video element পাওয়ার জন্য একটু অপেক্ষা করো
+            setTimeout(() => applyVideoStretch(container), 100);
+            setTimeout(() => applyVideoStretch(container), 500);
+            requestAnimationFrame(() => tryAutoplayWithUnmute());
           },
           onPlay: () => {
             setIsLoading(false);
             setError(null);
+            userPausedRef.current = false;
+            applyVideoStretch(container);
             tryAutoplayWithUnmute();
           },
+          onPause: () => {
+            // ✅ User intentionally paused — track করো
+            userPausedRef.current = true;
+          },
           onBuffer: () => setIsLoading(true),
-          onBufferFull: () => setIsLoading(false),
+          onBufferFull: () => {
+            setIsLoading(false);
+            applyVideoStretch(container);
+          },
           onError: (err: any) => {
             console.error('ClapprProxy Error:', err);
             const errMsg = 'Playback failed. The stream might be restricted or the proxy is being blocked.';
             setError(errMsg);
             setIsLoading(false);
             onError?.(errMsg);
-            if (err?.code === 'PLAYBACK_ERROR') {
-              setTimeout(() => initPlayer(), 3000);
-            }
+            if (err?.code === 'PLAYBACK_ERROR') setTimeout(() => initPlayer(), 3000);
             onStuck?.();
           },
         },
       });
 
       playerRef.current = player;
+
+      // ✅ video tag আসার পরে stretch apply করো (MutationObserver দিয়ে শুধু একবার)
+      const videoWatcher = new MutationObserver(() => {
+        const video = container.querySelector('video');
+        if (video) {
+          applyVideoStretch(container);
+          videoWatcher.disconnect();
+        }
+      });
+      videoWatcher.observe(container, { childList: true, subtree: true });
+
     } catch (err) {
       console.error('ClapprProxy init error:', err);
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute, applyVideoStretch]);
 
   useEffect(() => {
-    if (scriptLoaded) {
-      initPlayer();
-    }
-
+    if (scriptLoaded) initPlayer();
     return () => {
-      if (playerRef.current) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
+      if (playerRef.current) { playerRef.current.destroy(); playerRef.current = null; }
     };
   }, [scriptLoaded, initPlayer]);
 
+  // ✅ Stuck detection — user pause কে respect করো
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
 
     const checkStuck = setInterval(() => {
-      const video = playerContainerRef.current?.querySelector('video');
-      if (video && !video.paused && !isLoading && video.readyState >= 3) {
+      const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
+      if (!video) return;
+
+      // user নিজে pause করলে কিছু করবো না
+      if (userPausedRef.current) return;
+
+      if (!video.paused && !isLoading && video.readyState >= 3) {
         if (video.currentTime === lastTime) {
-          stuckCount += 1;
+          stuckCount++;
           if (stuckCount >= 20) {
-            console.warn('Stream stuck detected. Reloading...');
+            console.warn('Stream stuck. Reloading...');
             onStuck?.();
             initPlayer();
             stuckCount = 0;
@@ -289,12 +292,12 @@ export const ClapprProxyPlayer = ({
       onPointerUpCapture={tryUnmuteFromGesture}
     >
       <div
-        id={`clappr-proxy-container-${containerId}`}
         ref={(el) => {
           playerContainerRef.current = el;
           if (el) el.id = containerId;
         }}
         className={cn('w-full h-full', isLoading && 'opacity-0')}
+        style={{ position: 'relative' }}
       />
 
       {!error && (
@@ -335,34 +338,9 @@ export const ClapprProxyPlayer = ({
       )}
 
       <style>{`
-        #clappr-proxy-container-${containerId} [data-player] { width: 100% !important; height: 100% !important; }
-        #clappr-proxy-container-${containerId} > div,
-        #clappr-proxy-container-${containerId} > div > div,
-        #clappr-proxy-container-${containerId} > div > div > div {
-          width: 100% !important;
-          height: 100% !important;
-          max-width: 100% !important;
-          max-height: 100% !important;
-        }
-        #clappr-proxy-container-${containerId} video {
-          width: 100% !important;
-          height: 100% !important;
-          object-fit: ${isStretched ? 'fill' : 'contain'} !important;
-        }
-        :fullscreen #clappr-proxy-container-${containerId},
-        :fullscreen #clappr-proxy-container-${containerId} > div,
-        :fullscreen #clappr-proxy-container-${containerId} > div > div,
-        :-webkit-full-screen #clappr-proxy-container-${containerId},
-        :-webkit-full-screen #clappr-proxy-container-${containerId} > div,
-        :-webkit-full-screen #clappr-proxy-container-${containerId} > div > div {
-          width: 100vw !important;
-          height: 100vh !important;
-          max-width: 100vw !important;
-          max-height: 100vh !important;
-        }
-        :fullscreen video,
-        :-webkit-full-screen video,
-        :-moz-full-screen video {
+        #${containerId} [data-player] { width: 100% !important; height: 100% !important; }
+        #${containerId} > div { width: 100% !important; height: 100% !important; padding: 0 !important; }
+        :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
           object-fit: fill !important;
           width: 100vw !important;
           height: 100vh !important;
