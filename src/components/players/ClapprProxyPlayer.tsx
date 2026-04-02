@@ -39,8 +39,9 @@ export const ClapprProxyPlayer = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
-  // user যদি manually pause করে সেটা track করতে
   const userPausedRef = useRef(false);
+  // ✅ প্রথম user gesture হয়েছে কিনা track করতে
+  const hasInteractedRef = useRef(false);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -87,7 +88,6 @@ export const ClapprProxyPlayer = ({
     document.head.appendChild(script);
   }, []);
 
-  // ✅ শুধু video tag এ stretch apply করো
   const applyVideoStretch = useCallback((container: HTMLElement) => {
     const video = container.querySelector('video') as HTMLVideoElement | null;
     if (!video) return;
@@ -121,18 +121,35 @@ export const ClapprProxyPlayer = ({
     }
   }, []);
 
+  // ✅ FIX: video.play() সরিয়ে দেওয়া হয়েছে — শুধু unmute করে
+  // onPause event fire হওয়ার আগে play() call হলে PC তে pause কাজ করে না
   const tryUnmuteFromGesture = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
+
     try {
       player?.configure?.({ mute: false });
       player?.unmute?.();
       player?.setVolume?.(100);
-    } catch (err) { console.warn('ClapprProxy unmute failed:', err); }
+    } catch (err) {
+      console.warn('ClapprProxy unmute failed:', err);
+    }
+
     if (video) {
       video.muted = false;
       video.volume = 1;
-      video.play().catch(() => {});
+
+      // ✅ শুধু প্রথমবার interaction এ play() call করো (muted autoplay unlock)
+      // পরবর্তী click গুলোতে Clappr নিজেই handle করবে
+      if (!hasInteractedRef.current) {
+        hasInteractedRef.current = true;
+        // onPause কে আগে fire হওয়ার সুযোগ দাও, তারপর check করো
+        setTimeout(() => {
+          if (!userPausedRef.current && video.paused) {
+            video.play().catch(() => {});
+          }
+        }, 100);
+      }
     }
   }, []);
 
@@ -144,6 +161,7 @@ export const ClapprProxyPlayer = ({
     const container = playerContainerRef.current;
     container.innerHTML = '';
     userPausedRef.current = false;
+    hasInteractedRef.current = false; // ✅ reinit এ reset করো
     setError(null);
     setIsLoading(true);
 
@@ -194,7 +212,6 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
-            // video element পাওয়ার জন্য একটু অপেক্ষা করো
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
             requestAnimationFrame(() => tryAutoplayWithUnmute());
@@ -229,7 +246,6 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
-      // ✅ video tag আসার পরে stretch apply করো (MutationObserver দিয়ে শুধু একবার)
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
@@ -253,7 +269,6 @@ export const ClapprProxyPlayer = ({
     };
   }, [scriptLoaded, initPlayer]);
 
-  // ✅ Stuck detection — user pause কে respect করো
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
@@ -262,7 +277,6 @@ export const ClapprProxyPlayer = ({
       const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
       if (!video) return;
 
-      // user নিজে pause করলে কিছু করবো না
       if (userPausedRef.current) return;
 
       if (!video.paused && !isLoading && video.readyState >= 3) {
