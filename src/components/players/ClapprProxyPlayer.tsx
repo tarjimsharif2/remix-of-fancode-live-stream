@@ -38,6 +38,7 @@ export const ClapprProxyPlayer = ({
   const logoOriginalParentRef = useRef<HTMLElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const userPausedRef = useRef(false);
 
@@ -106,6 +107,7 @@ export const ClapprProxyPlayer = ({
     userPausedRef.current = false;
     setError(null);
     setIsLoading(true);
+    setIsPaused(false);
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     let proxiedSrc = `${supabaseUrl}/functions/v1/stream-proxy?url=${encodeURIComponent(streamUrl)}&t=${Date.now()}`;
@@ -122,7 +124,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true, // ✅ muted দিয়ে init — browser block করবে না
+        mute: true,
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -156,8 +158,6 @@ export const ClapprProxyPlayer = ({
             onReady?.();
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
-            // ✅ mobile এ autoPlay শুধু config এ দিলে হয় না
-            // explicit play() call করতে হয়
             setTimeout(() => {
               try { player.play(); } catch (e) {}
             }, 200);
@@ -165,11 +165,13 @@ export const ClapprProxyPlayer = ({
           onPlay: () => {
             setIsLoading(false);
             setError(null);
+            setIsPaused(false); // ✅ play হলে overlay সরাও
             userPausedRef.current = false;
             applyVideoStretch(container);
           },
           onPause: () => {
             userPausedRef.current = true;
+            setIsPaused(true); // ✅ pause হলে overlay দেখাও
           },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => {
@@ -181,6 +183,7 @@ export const ClapprProxyPlayer = ({
             const errMsg = 'Playback failed. The stream might be restricted or the proxy is being blocked.';
             setError(errMsg);
             setIsLoading(false);
+            setIsPaused(false);
             onError?.(errMsg);
             if (err?.code === 'PLAYBACK_ERROR') setTimeout(() => initPlayer(), 3000);
             onStuck?.();
@@ -190,8 +193,6 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
-      // ✅ playing state এ আছে — শুধু unmute করো
-      // video.play() আর call করো না, already playing
       player.on(Clappr.Events.PLAYER_PLAY, () => {
         setTimeout(() => {
           const video = container.querySelector('video') as HTMLVideoElement | null;
@@ -278,6 +279,23 @@ export const ClapprProxyPlayer = ({
       {isLoading && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+        </div>
+      )}
+
+      {/* ✅ Pause overlay — click করলে আবার play */}
+      {isPaused && !error && !isLoading && (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 cursor-pointer"
+          onClick={() => {
+            playerRef.current?.play();
+            setIsPaused(false);
+          }}
+        >
+          <div className="flex items-center justify-center w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm border-2 border-white/40 transition-transform active:scale-95">
+            <svg viewBox="0 0 24 24" className="w-10 h-10 fill-white ml-1" xmlns="http://www.w3.org/2000/svg">
+              <polygon points="5,3 19,12 5,21" />
+            </svg>
+          </div>
         </div>
       )}
 
