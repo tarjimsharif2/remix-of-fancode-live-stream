@@ -32,7 +32,7 @@ export const ClapprProxyPlayer = ({
   onReady,
   onStuck,
 }: ClapprProxyPlayerProps) => {
-  const wrapperRef = useRef<HTMLDivElement>(null);       // ✅ outermost wrapper
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const logoRef = useRef<HTMLImageElement>(null);
@@ -41,7 +41,7 @@ export const ClapprProxyPlayer = ({
   const [isLoading, setIsLoading] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // ✅ KEY FIX: video native fullscreen হলে exit করে wrapper কে fullscreen করো
+  // ✅ Fullscreen: video native fullscreen হলে wrapper কে fullscreen করো
   useEffect(() => {
     const handleFullscreenChange = () => {
       const fsEl =
@@ -49,7 +49,6 @@ export const ClapprProxyPlayer = ({
         (document as any).webkitFullscreenElement ||
         (document as any).mozFullScreenElement;
 
-      // Case 1: Video নিজে fullscreen হয়ে গেছে (Clappr এর default behaviour)
       if (fsEl && fsEl.tagName === 'VIDEO') {
         const exitFs =
           document.exitFullscreen?.bind(document) ||
@@ -57,7 +56,6 @@ export const ClapprProxyPlayer = ({
           (document as any).mozCancelFullScreen?.bind(document);
 
         exitFs?.()?.then(() => {
-          // Wrapper কে fullscreen করো
           const wrapper = wrapperRef.current;
           if (!wrapper) return;
           const reqFs =
@@ -69,7 +67,6 @@ export const ClapprProxyPlayer = ({
         return;
       }
 
-      // Case 2: আমাদের wrapper fullscreen এ গেছে — logo move করো
       const logo = logoRef.current;
       if (!logo) return;
 
@@ -82,7 +79,6 @@ export const ClapprProxyPlayer = ({
         logo.style.zIndex = '2147483647';
         logo.style.width = '56px';
       } else {
-        // Fullscreen exit
         if (logoOriginalParentRef.current) {
           logoOriginalParentRef.current.appendChild(logo);
         }
@@ -285,8 +281,11 @@ export const ClapprProxyPlayer = ({
   const containerId = useRef(`cp-${Math.random().toString(36).slice(2, 8)}`).current;
 
   return (
-    // ✅ wrapperRef — এটাকেই fullscreen করা হবে
-    <div ref={wrapperRef} className="relative w-full h-full bg-black overflow-hidden" onPointerUpCapture={tryUnmuteFromGesture}>
+    <div
+      ref={wrapperRef}
+      className="relative w-full h-full bg-black overflow-hidden"
+      onPointerUpCapture={tryUnmuteFromGesture}
+    >
       <div
         ref={(el) => {
           playerContainerRef.current = el;
@@ -333,14 +332,63 @@ export const ClapprProxyPlayer = ({
       )}
 
       <style>{`
-        /* Normal state */
+        /* ── Player container ── */
+        #${containerId},
+        #${containerId} [data-player] {
+          width: 100% !important;
+          height: 100% !important;
+          position: relative !important;
+          /* ✅ transform/rotate বাতিল করো */
+          transform: none !important;
+          rotate: none !important;
+        }
+
+        /* ── Video stretch ── */
         #${containerId} video {
           width: 100% !important;
           height: 100% !important;
           object-fit: fill !important;
+          /* ✅ video কোনো rotation নেবে না */
+          transform: none !important;
+          position: absolute !important;
+          inset: 0 !important;
         }
 
-        /* ✅ Wrapper fullscreen এ — video stretch করো */
+        /* ✅ Control bar সবসময় নিচে */
+        #${containerId} .media-control {
+          position: absolute !important;
+          top: auto !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          flex-direction: column !important;
+          justify-content: flex-end !important;
+          transform: none !important;
+        }
+
+        /* ✅ Control bar এর inner layout ঠিক করো */
+        #${containerId} .media-control-background {
+          position: absolute !important;
+          bottom: 0 !important;
+          top: auto !important;
+        }
+
+        #${containerId} .media-control-layer {
+          position: relative !important;
+          top: auto !important;
+          bottom: 0 !important;
+          flex-direction: row !important;
+          align-items: center !important;
+        }
+
+        /* ✅ Seekbar সবসময় উপরে (control bar এর মধ্যে) */
+        #${containerId} .bar-container {
+          position: relative !important;
+          order: -1 !important;
+        }
+
+        /* ── Fullscreen state ── */
         :fullscreen #${containerId} video,
         :-webkit-full-screen #${containerId} video,
         :-moz-full-screen #${containerId} video {
@@ -349,17 +397,28 @@ export const ClapprProxyPlayer = ({
           object-fit: fill !important;
           position: fixed !important;
           inset: 0 !important;
+          transform: none !important;
         }
 
-        /* ✅ Wrapper fullscreen এ — Clappr container stretch */
-        :fullscreen #${containerId},
-        :-webkit-full-screen #${containerId},
-        :-moz-full-screen #${containerId},
         :fullscreen #${containerId} [data-player],
         :-webkit-full-screen #${containerId} [data-player],
-        :-moz-full-screen #${containerId} [data-player] {
+        :-moz-full-screen #${containerId} [data-player],
+        :fullscreen #${containerId},
+        :-webkit-full-screen #${containerId},
+        :-moz-full-screen #${containerId} {
           width: 100vw !important;
           height: 100vh !important;
+          transform: none !important;
+        }
+
+        /* ✅ Fullscreen এও control bar নিচে */
+        :fullscreen #${containerId} .media-control,
+        :-webkit-full-screen #${containerId} .media-control,
+        :-moz-full-screen #${containerId} .media-control {
+          position: fixed !important;
+          bottom: 0 !important;
+          top: auto !important;
+          transform: none !important;
         }
       `}</style>
     </div>
