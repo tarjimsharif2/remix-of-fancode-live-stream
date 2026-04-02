@@ -133,7 +133,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true,
+        mute: false,
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
