@@ -42,12 +42,6 @@ export const ClapprProxyPlayer = ({
   const userPausedRef = useRef(false);
   const unmutedOnceRef = useRef(false);
 
-  // ✅ Page load type detect — refresh নাকি first load
-  const isRefresh = useRef(
-    performance.getEntriesByType('navigation').length > 0 &&
-    (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type === 'reload'
-  ).current;
-
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
@@ -129,10 +123,8 @@ export const ClapprProxyPlayer = ({
         source: proxiedSrc,
         parent: container,
         poster,
-        // ✅ refresh এ autoPlay বন্ধ → Clappr play button দেখাবে
-        // ✅ first load এ autoPlay চালু + muted → browser allow করবে
-        autoPlay: !isRefresh,
-        mute: !isRefresh,
+        autoPlay: true,
+        mute: true,
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -173,9 +165,8 @@ export const ClapprProxyPlayer = ({
             userPausedRef.current = false;
             applyVideoStretch(container);
 
-            // ✅ first load এ autoplay চলছে → playing অবস্থায় unmute করো
-            // refresh এ user নিজে click করেছে → mute: false ছিলই, কিছু করতে হবে না
-            if (!isRefresh && !unmutedOnceRef.current) {
+            // playing শুরু হলে একবারই unmute করো
+            if (!unmutedOnceRef.current) {
               unmutedOnceRef.current = true;
               const video = container.querySelector('video') as HTMLVideoElement | null;
               if (video) {
@@ -209,10 +200,7 @@ export const ClapprProxyPlayer = ({
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
-          if (!isRefresh) {
-            // first load: muted দিয়ে শুরু, onPlay এ unmute হবে
-            video.muted = true;
-          }
+          video.muted = true; // সবসময় muted দিয়ে শুরু, onPlay এ unmute হবে
           video.playsInline = true;
           applyVideoStretch(container);
           videoWatcher.disconnect();
@@ -225,7 +213,7 @@ export const ClapprProxyPlayer = ({
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, applyVideoStretch, isRefresh]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, applyVideoStretch]);
 
   useEffect(() => {
     if (scriptLoaded) initPlayer();
