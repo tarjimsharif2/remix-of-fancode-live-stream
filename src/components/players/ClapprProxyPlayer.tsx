@@ -36,11 +36,10 @@ export const ClapprProxyPlayer = ({
   const playerRef = useRef<any>(null);
   const logoRef = useRef<HTMLImageElement>(null);
   const logoOriginalParentRef = useRef<HTMLElement>(null);
+  const userPausedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
-  // user যদি manually pause করে সেটা track করতে
-  const userPausedRef = useRef(false);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -87,15 +86,12 @@ export const ClapprProxyPlayer = ({
     document.head.appendChild(script);
   }, []);
 
-  // ✅ শুধু video tag এ stretch apply করো
   const applyVideoStretch = useCallback((container: HTMLElement) => {
     const video = container.querySelector('video') as HTMLVideoElement | null;
     if (!video) return;
     video.style.setProperty('object-fit', 'fill', 'important');
     video.style.setProperty('width', '100%', 'important');
     video.style.setProperty('height', '100%', 'important');
-    video.style.setProperty('position', 'absolute', 'important');
-    video.style.setProperty('inset', '0', 'important');
   }, []);
 
   const tryAutoplayWithUnmute = useCallback(() => {
@@ -135,6 +131,9 @@ export const ClapprProxyPlayer = ({
       video.play().catch(() => {});
     }
   }, []);
+
+  // initPlayer কে আগে declare করতে হবে — তাই useRef এ রাখছি
+  const initPlayerRef = useRef<() => void>(() => {});
 
   const initPlayer = useCallback(() => {
     if (!playerContainerRef.current || typeof Clappr === 'undefined') return;
@@ -194,7 +193,6 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
-            // video element পাওয়ার জন্য একটু অপেক্ষা করো
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
             requestAnimationFrame(() => tryAutoplayWithUnmute());
@@ -207,7 +205,6 @@ export const ClapprProxyPlayer = ({
             tryAutoplayWithUnmute();
           },
           onPause: () => {
-            // ✅ User intentionally paused — track করো
             userPausedRef.current = true;
           },
           onBuffer: () => setIsLoading(true),
@@ -221,7 +218,7 @@ export const ClapprProxyPlayer = ({
             setError(errMsg);
             setIsLoading(false);
             onError?.(errMsg);
-            if (err?.code === 'PLAYBACK_ERROR') setTimeout(() => initPlayer(), 3000);
+            if (err?.code === 'PLAYBACK_ERROR') setTimeout(() => initPlayerRef.current(), 3000);
             onStuck?.();
           },
         },
@@ -229,11 +226,40 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
-      // ✅ video tag আসার পরে stretch apply করো (MutationObserver দিয়ে শুধু একবার)
+      // ✅ Pause এর পরে container click করলে reinitialize — live stream resume হয় না
+      const handleContainerClick = () => {
+        if (userPausedRef.current) {
+          const video = container.querySelector('video') as HTMLVideoElement | null;
+          if (video && video.paused) {
+            // video এখনো paused — reinitialize করো
+            setTimeout(() => {
+              if (userPausedRef.current) {
+                initPlayerRef.current();
+              }
+            }, 300);
+          }
+        }
+      };
+      container.addEventListener('click', handleContainerClick);
+
+      // ✅ video tag আসার সাথে সাথে stretch apply
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
           applyVideoStretch(container);
+
+          // ✅ video এর native play event listen করো
+          // pause এর পরে play() call হলে কিন্তু fail করলে reinitialize
+          video.addEventListener('play', () => {
+            userPausedRef.current = false;
+          });
+
+          video.addEventListener('error', () => {
+            if (!userPausedRef.current) {
+              setTimeout(() => initPlayerRef.current(), 2000);
+            }
+          });
+
           videoWatcher.disconnect();
         }
       });
@@ -246,6 +272,11 @@ export const ClapprProxyPlayer = ({
     }
   }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute, applyVideoStretch]);
 
+  // initPlayerRef সবসময় latest initPlayer ধরে রাখবে
+  useEffect(() => {
+    initPlayerRef.current = initPlayer;
+  }, [initPlayer]);
+
   useEffect(() => {
     if (scriptLoaded) initPlayer();
     return () => {
@@ -253,7 +284,7 @@ export const ClapprProxyPlayer = ({
     };
   }, [scriptLoaded, initPlayer]);
 
-  // ✅ Stuck detection — user pause কে respect করো
+  // ✅ Stuck detection
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
@@ -261,8 +292,6 @@ export const ClapprProxyPlayer = ({
     const checkStuck = setInterval(() => {
       const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
       if (!video) return;
-
-      // user নিজে pause করলে কিছু করবো না
       if (userPausedRef.current) return;
 
       if (!video.paused && !isLoading && video.readyState >= 3) {
@@ -271,7 +300,7 @@ export const ClapprProxyPlayer = ({
           if (stuckCount >= 20) {
             console.warn('Stream stuck. Reloading...');
             onStuck?.();
-            initPlayer();
+            initPlayerRef.current();
             stuckCount = 0;
           }
         } else {
@@ -282,7 +311,7 @@ export const ClapprProxyPlayer = ({
     }, 1000);
 
     return () => clearInterval(checkStuck);
-  }, [initPlayer, isLoading, onStuck]);
+  }, [isLoading, onStuck]);
 
   const containerId = useRef(`cp-${Math.random().toString(36).slice(2, 8)}`).current;
 
@@ -340,6 +369,8 @@ export const ClapprProxyPlayer = ({
       <style>{`
         #${containerId} [data-player] { width: 100% !important; height: 100% !important; }
         #${containerId} > div { width: 100% !important; height: 100% !important; padding: 0 !important; }
+        #${containerId} .clappr-player { width: 100% !important; height: 100% !important; }
+        #${containerId} .container[data-player] { width: 100% !important; height: 100% !important; padding-bottom: 0 !important; }
         :fullscreen video, :-webkit-full-screen video, :-moz-full-screen video {
           object-fit: fill !important;
           width: 100vw !important;
