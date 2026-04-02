@@ -56,37 +56,52 @@ export const ClapprProxyPlayer = ({
     document.head.appendChild(script);
   }, []);
 
-  // ✅ KEY TRICK: muted দিয়ে play() → .then() এর ভেতরেই সাথে সাথে unmute
-  // Chrome Android play() শুরু হলে volume change allow করে
+  // ✅ নতুন ফাংশন: unmuted play try করে, fail হলে muted চালু করে তারপর unmute
   const tryAutoplayWithUnmute = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
+
     if (!video) return;
 
+    video.muted = false;
+    video.volume = 1;
     video.playsInline = true;
     video.autoplay = true;
-    video.muted = true; // প্রথমে muted — play() guarantee করতে
 
     const playPromise = video.play();
+
     if (playPromise) {
       playPromise
         .then(() => {
-          // ✅ play শুরু হওয়ার সাথে সাথেই unmute — Chrome এটা block করে না
-          video.muted = false;
-          video.volume = 1;
+          // সফল! Clappr কেও unmute করো
           try {
             player?.configure?.({ mute: false });
             player?.unmute?.();
             player?.setVolume?.(100);
           } catch {}
         })
-        .catch((err) => {
-          console.warn('ClapprProxy autoplay failed:', err);
+        .catch(() => {
+          // Browser block করলে — muted দিয়ে চালু করো
+          video.muted = true;
+          video.play()
+            .then(() => {
+              // muted চললে ৫০০ms পর unmute try
+              setTimeout(() => {
+                video.muted = false;
+                video.volume = 1;
+                try {
+                  player?.configure?.({ mute: false });
+                  player?.unmute?.();
+                  player?.setVolume?.(100);
+                } catch {}
+              }, 500);
+            })
+            .catch(() => {});
         });
     }
   }, []);
 
-  // ✅ User gesture এ unmute (Safari iOS fallback)
+  // ✅ Click/tap এ unmute (fallback for strict browsers like Safari iOS)
   const tryUnmuteFromGesture = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
@@ -139,7 +154,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true, // ✅ Clappr muted দিয়ে শুরু করুক — আমরা পরে unmute করব
+        mute: false, // ✅ শুরু থেকেই unmuted রাখো
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -173,7 +188,7 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
-            // ✅ onReady তে unmute trick চালাও
+            // ✅ tryAutoplayWithUnmute ব্যবহার করো
             requestAnimationFrame(() => {
               tryAutoplayWithUnmute();
             });
@@ -181,7 +196,7 @@ export const ClapprProxyPlayer = ({
           onPlay: () => {
             setIsLoading(false);
             setError(null);
-            // ✅ onPlay তেও চালাও — double insurance
+            // ✅ play শুরু হলেও unmute enforce করো
             tryAutoplayWithUnmute();
           },
           onBuffer: () => setIsLoading(true),
