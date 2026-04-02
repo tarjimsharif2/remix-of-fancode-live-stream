@@ -42,7 +42,6 @@ export const ClapprProxyPlayer = ({
   const userPausedRef = useRef(false);
   const hasInteractedRef = useRef(false);
 
-  // ✅ sessionStorage key — streamUrl per unique key
   const storageKey = `player_paused_${btoa(streamUrl).slice(0, 20)}`;
 
   useEffect(() => {
@@ -159,13 +158,20 @@ export const ClapprProxyPlayer = ({
     userPausedRef.current = false;
     hasInteractedRef.current = false;
 
-    // ✅ forcePlay (Retry বাটন) হলে sessionStorage clear করো
+    // ✅ Retry বাটনে forcePlay=true হলে sessionStorage clear করো
     if (forcePlay) {
       sessionStorage.removeItem(storageKey);
     }
 
     setError(null);
     setIsLoading(true);
+
+    // ✅ initPlayer শুরুতেই check করো — onPlay race condition এড়াতে
+    const wasPaused = sessionStorage.getItem(storageKey) === 'true';
+    if (wasPaused) {
+      userPausedRef.current = true;
+      hasInteractedRef.current = true;
+    }
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     let proxiedSrc = `${supabaseUrl}/functions/v1/stream-proxy?url=${encodeURIComponent(streamUrl)}&t=${Date.now()}`;
@@ -181,8 +187,9 @@ export const ClapprProxyPlayer = ({
         source: proxiedSrc,
         parent: container,
         poster,
-        autoPlay: true,
-        mute: true,
+        // ✅ আগে pause ছিলে autoPlay বন্ধ রাখো
+        autoPlay: !wasPaused,
+        mute: !wasPaused,
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -216,16 +223,8 @@ export const ClapprProxyPlayer = ({
             onReady?.();
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
-
-            // ✅ আগে pause ছিল কিনা check করো
-            const wasPaused = sessionStorage.getItem(storageKey) === 'true';
-            if (wasPaused) {
-              userPausedRef.current = true;
-              hasInteractedRef.current = true;
-              setTimeout(() => {
-                playerRef.current?.pause?.();
-              }, 300);
-            } else {
+            // ✅ wasPaused হলে autoPlay false — কিছু করতে হবে না, poster দেখাবে
+            if (!wasPaused) {
               requestAnimationFrame(() => tryAutoplayWithUnmute());
             }
           },
@@ -351,7 +350,6 @@ export const ClapprProxyPlayer = ({
           <h3 className="mb-2 text-lg font-bold text-foreground">Transmission Error</h3>
           <p className="mb-6 max-w-xs text-sm text-muted-foreground">{error}</p>
           <div className="flex flex-wrap justify-center gap-3">
-            {/* ✅ Retry তে forcePlay=true পাঠাও */}
             <Button onClick={() => initPlayer(true)} size="sm">
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry
