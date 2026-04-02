@@ -34,14 +34,13 @@ export const ClapprProxyPlayer = ({
 }: ClapprProxyPlayerProps) => {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const logoRef = useRef<HTMLImageElement>(null);         // ✅ logo ref
-  const logoOriginalParentRef = useRef<HTMLElement>(null); // ✅ original parent track
+  const logoRef = useRef<HTMLImageElement>(null);
+  const logoOriginalParentRef = useRef<HTMLElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isStretched] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // ✅ Fullscreen change handler — logo কে fullscreen element এ নিয়ে যাও
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
@@ -53,21 +52,16 @@ export const ClapprProxyPlayer = ({
         (document as any).mozFullScreenElement;
 
       if (fsElement) {
-        // Fullscreen হলে logo কে fullscreen element এ append করো
         logoOriginalParentRef.current = logo.parentElement as HTMLElement;
         fsElement.appendChild(logo);
-
-        // Fullscreen এ logo style fix
         logo.style.position = 'fixed';
         logo.style.top = '12px';
         logo.style.right = '12px';
-        logo.style.zIndex = '2147483647'; // সর্বোচ্চ z-index
+        logo.style.zIndex = '2147483647';
       } else {
-        // Fullscreen exit হলে original জায়গায় ফেরত দাও
         if (logoOriginalParentRef.current) {
           logoOriginalParentRef.current.appendChild(logo);
         }
-        // Style reset
         logo.style.position = '';
         logo.style.top = '';
         logo.style.right = '';
@@ -303,7 +297,6 @@ export const ClapprProxyPlayer = ({
         className={cn('w-full h-full', isLoading && 'opacity-0')}
       />
 
-      {/* ✅ logoRef যুক্ত করা হয়েছে */}
       {!error && (
         <img
           ref={logoRef}
@@ -347,6 +340,13 @@ export const ClapprProxyPlayer = ({
           width: 100% !important;
           height: 100% !important;
           object-fit: ${isStretched ? 'fill' : 'contain'} !important;
+        }
+        :fullscreen video,
+        :-webkit-full-screen video,
+        :-moz-full-screen video {
+          object-fit: fill !important;
+          width: 100vw !important;
+          height: 100vh !important;
         }
       `}</style>
     </div>
