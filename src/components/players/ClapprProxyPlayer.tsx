@@ -91,10 +91,13 @@ export const ClapprProxyPlayer = ({
         source: proxiedSrc,
         parent: container,
         autoPlay: true,
-        muted: true,
+        mute: true,
         width: "100%",
         height: "100%",
         mimeType: "application/x-mpegURL",
+        watermark: "https://i.ibb.co/Q3rp8ZXs/20260203-180035-0000.png",
+        watermarkLink: "",
+        position: "top-right",
         playback: {
           playInline: true,
           hlsjsConfig: {
@@ -119,7 +122,18 @@ export const ClapprProxyPlayer = ({
           }
         },
         events: {
-          onReady: () => { setIsLoading(false); setError(null); onReady?.(); },
+          onReady: function() { 
+            setIsLoading(false); 
+            setError(null); 
+            onReady?.(); 
+            // Force play and unmute after ready
+            try {
+              player.play();
+              player.once(Clappr.Events.PLAYER_PLAY, () => {
+                player.configure({ mute: false });
+              });
+            } catch(e) { console.warn('Autoplay attempt:', e); }
+          },
           onPlay: () => { setIsLoading(false); setError(null); },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => setIsLoading(false),
