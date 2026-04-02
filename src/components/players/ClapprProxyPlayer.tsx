@@ -42,6 +42,12 @@ export const ClapprProxyPlayer = ({
   const userPausedRef = useRef(false);
   const unmutedOnceRef = useRef(false);
 
+  // ✅ Page load type detect — refresh নাকি first load
+  const isRefresh = useRef(
+    performance.getEntriesByType('navigation').length > 0 &&
+    (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type === 'reload'
+  ).current;
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
@@ -123,8 +129,10 @@ export const ClapprProxyPlayer = ({
         source: proxiedSrc,
         parent: container,
         poster,
-        autoPlay: true,
-        mute: true, // ✅ browser autoplay policy মানতে muted শুরু
+        // ✅ refresh এ autoPlay বন্ধ → Clappr play button দেখাবে
+        // ✅ first load এ autoPlay চালু + muted → browser allow করবে
+        autoPlay: !isRefresh,
+        mute: !isRefresh,
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -165,9 +173,9 @@ export const ClapprProxyPlayer = ({
             userPausedRef.current = false;
             applyVideoStretch(container);
 
-            // ✅ video playing থাকা অবস্থায় muted=false করলে
-            // browser block করে না এবং pause ও হয় না
-            if (!unmutedOnceRef.current) {
+            // ✅ first load এ autoplay চলছে → playing অবস্থায় unmute করো
+            // refresh এ user নিজে click করেছে → mute: false ছিলই, কিছু করতে হবে না
+            if (!isRefresh && !unmutedOnceRef.current) {
               unmutedOnceRef.current = true;
               const video = container.querySelector('video') as HTMLVideoElement | null;
               if (video) {
@@ -201,8 +209,10 @@ export const ClapprProxyPlayer = ({
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
-          // ✅ শুরুতে muted+playsinline নিশ্চিত করো
-          video.muted = true;
+          if (!isRefresh) {
+            // first load: muted দিয়ে শুরু, onPlay এ unmute হবে
+            video.muted = true;
+          }
           video.playsInline = true;
           applyVideoStretch(container);
           videoWatcher.disconnect();
@@ -215,7 +225,7 @@ export const ClapprProxyPlayer = ({
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, applyVideoStretch]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, applyVideoStretch, isRefresh]);
 
   useEffect(() => {
     if (scriptLoaded) initPlayer();
