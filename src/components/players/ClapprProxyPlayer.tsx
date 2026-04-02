@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -36,9 +36,10 @@ export const ClapprProxyPlayer = ({
   const playerRef = useRef<any>(null);
   const logoRef = useRef<HTMLImageElement>(null);
   const logoOriginalParentRef = useRef<HTMLElement>(null);
-  const userPausedRef = useRef(false);
+  const initPlayerRef = useRef<() => void>(() => {});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPaused, setIsPaused] = useState(false); // ✅ pause overlay state
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
   useEffect(() => {
@@ -132,9 +133,6 @@ export const ClapprProxyPlayer = ({
     }
   }, []);
 
-  // initPlayer কে আগে declare করতে হবে — তাই useRef এ রাখছি
-  const initPlayerRef = useRef<() => void>(() => {});
-
   const initPlayer = useCallback(() => {
     if (!playerContainerRef.current || typeof Clappr === 'undefined') return;
 
@@ -142,9 +140,9 @@ export const ClapprProxyPlayer = ({
 
     const container = playerContainerRef.current;
     container.innerHTML = '';
-    userPausedRef.current = false;
     setError(null);
     setIsLoading(true);
+    setIsPaused(false);
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     let proxiedSrc = `${supabaseUrl}/functions/v1/stream-proxy?url=${encodeURIComponent(streamUrl)}&t=${Date.now()}`;
@@ -192,6 +190,7 @@ export const ClapprProxyPlayer = ({
           onReady: () => {
             setIsLoading(false);
             setError(null);
+            setIsPaused(false);
             onReady?.();
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
@@ -200,12 +199,13 @@ export const ClapprProxyPlayer = ({
           onPlay: () => {
             setIsLoading(false);
             setError(null);
-            userPausedRef.current = false;
+            setIsPaused(false);
             applyVideoStretch(container);
             tryAutoplayWithUnmute();
           },
+          // ✅ pause হলে custom overlay দেখাও — Clappr এর resume bypass করো
           onPause: () => {
-            userPausedRef.current = true;
+            setIsPaused(true);
           },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => {
@@ -226,40 +226,10 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
-      // ✅ Pause এর পরে container click করলে reinitialize — live stream resume হয় না
-      const handleContainerClick = () => {
-        if (userPausedRef.current) {
-          const video = container.querySelector('video') as HTMLVideoElement | null;
-          if (video && video.paused) {
-            // video এখনো paused — reinitialize করো
-            setTimeout(() => {
-              if (userPausedRef.current) {
-                initPlayerRef.current();
-              }
-            }, 300);
-          }
-        }
-      };
-      container.addEventListener('click', handleContainerClick);
-
-      // ✅ video tag আসার সাথে সাথে stretch apply
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
           applyVideoStretch(container);
-
-          // ✅ video এর native play event listen করো
-          // pause এর পরে play() call হলে কিন্তু fail করলে reinitialize
-          video.addEventListener('play', () => {
-            userPausedRef.current = false;
-          });
-
-          video.addEventListener('error', () => {
-            if (!userPausedRef.current) {
-              setTimeout(() => initPlayerRef.current(), 2000);
-            }
-          });
-
           videoWatcher.disconnect();
         }
       });
@@ -272,7 +242,6 @@ export const ClapprProxyPlayer = ({
     }
   }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute, applyVideoStretch]);
 
-  // initPlayerRef সবসময় latest initPlayer ধরে রাখবে
   useEffect(() => {
     initPlayerRef.current = initPlayer;
   }, [initPlayer]);
@@ -284,15 +253,13 @@ export const ClapprProxyPlayer = ({
     };
   }, [scriptLoaded, initPlayer]);
 
-  // ✅ Stuck detection
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
 
     const checkStuck = setInterval(() => {
       const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
-      if (!video) return;
-      if (userPausedRef.current) return;
+      if (!video || isPaused) return;
 
       if (!video.paused && !isLoading && video.readyState >= 3) {
         if (video.currentTime === lastTime) {
@@ -311,7 +278,7 @@ export const ClapprProxyPlayer = ({
     }, 1000);
 
     return () => clearInterval(checkStuck);
-  }, [isLoading, onStuck]);
+  }, [isLoading, isPaused, onStuck]);
 
   const containerId = useRef(`cp-${Math.random().toString(36).slice(2, 8)}`).current;
 
@@ -343,6 +310,23 @@ export const ClapprProxyPlayer = ({
       {isLoading && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+        </div>
+      )}
+
+      {/* ✅ Paused overlay — click করলে stream fresh reload হবে */}
+      {isPaused && !error && !isLoading && (
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 cursor-pointer"
+          onClick={() => initPlayerRef.current()}
+        >
+          <div className="flex flex-col items-center gap-3">
+            <div className="rounded-full bg-white/20 p-5 hover:bg-white/30 transition-colors">
+              <Play className="h-10 w-10 text-white fill-white" />
+            </div>
+            <span className="text-white text-sm font-medium opacity-80">
+              ক্লিক করুন — লাইভে ফিরে যান
+            </span>
+          </div>
         </div>
       )}
 
