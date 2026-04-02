@@ -32,6 +32,7 @@ export const ClapprProxyPlayer = ({
   onReady,
   onStuck,
 }: ClapprProxyPlayerProps) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const logoRef = useRef<HTMLImageElement>(null);
@@ -40,24 +41,42 @@ export const ClapprProxyPlayer = ({
   const [isLoading, setIsLoading] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // ✅ Fullscreen change — logo move করো
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const logo = logoRef.current;
-      if (!logo) return;
-
-      const fsElement =
+      const fsEl =
         document.fullscreenElement ||
         (document as any).webkitFullscreenElement ||
         (document as any).mozFullScreenElement;
 
-      if (fsElement) {
+      if (fsEl && fsEl.tagName === 'VIDEO') {
+        const exitFs =
+          document.exitFullscreen?.bind(document) ||
+          (document as any).webkitExitFullscreen?.bind(document) ||
+          (document as any).mozCancelFullScreen?.bind(document);
+
+        exitFs?.()?.then(() => {
+          const wrapper = wrapperRef.current;
+          if (!wrapper) return;
+          const reqFs =
+            wrapper.requestFullscreen?.bind(wrapper) ||
+            (wrapper as any).webkitRequestFullscreen?.bind(wrapper) ||
+            (wrapper as any).mozRequestFullScreen?.bind(wrapper);
+          reqFs?.();
+        }).catch(() => {});
+        return;
+      }
+
+      const logo = logoRef.current;
+      if (!logo) return;
+
+      if (fsEl) {
         logoOriginalParentRef.current = logo.parentElement as HTMLElement;
-        fsElement.appendChild(logo);
+        fsEl.appendChild(logo);
         logo.style.position = 'fixed';
         logo.style.top = '12px';
         logo.style.right = '12px';
         logo.style.zIndex = '2147483647';
+        logo.style.width = '56px';
       } else {
         if (logoOriginalParentRef.current) {
           logoOriginalParentRef.current.appendChild(logo);
@@ -66,6 +85,7 @@ export const ClapprProxyPlayer = ({
         logo.style.top = '';
         logo.style.right = '';
         logo.style.zIndex = '';
+        logo.style.width = '';
       }
     };
 
@@ -85,7 +105,6 @@ export const ClapprProxyPlayer = ({
       setScriptLoaded(true);
       return;
     }
-
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/@clappr/player@latest/dist/clappr.min.js';
     script.async = true;
@@ -106,34 +125,27 @@ export const ClapprProxyPlayer = ({
     video.autoplay = true;
     video.muted = true;
 
-    const playPromise = video.play();
-    if (playPromise) {
-      playPromise
-        .then(() => {
-          video.muted = false;
-          video.volume = 1;
-          try {
-            player?.configure?.({ mute: false });
-            player?.unmute?.();
-            player?.setVolume?.(100);
-          } catch {}
-        })
-        .catch((err) => {
-          console.warn('ClapprProxy autoplay failed:', err);
-        });
-    }
+    video.play()
+      ?.then(() => {
+        video.muted = false;
+        video.volume = 1;
+        try {
+          player?.configure?.({ mute: false });
+          player?.unmute?.();
+          player?.setVolume?.(100);
+        } catch {}
+      })
+      .catch(() => {});
   }, []);
 
   const tryUnmuteFromGesture = useCallback(() => {
     const player = playerRef.current;
     const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
-
     try {
       player?.configure?.({ mute: false });
       player?.unmute?.();
       player?.setVolume?.(100);
     } catch {}
-
     if (video) {
       video.muted = false;
       video.volume = 1;
@@ -151,7 +163,6 @@ export const ClapprProxyPlayer = ({
 
     const container = playerContainerRef.current;
     container.innerHTML = '';
-
     setError(null);
     setIsLoading(true);
 
@@ -247,7 +258,6 @@ export const ClapprProxyPlayer = ({
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
-
     const checkStuck = setInterval(() => {
       const video = playerContainerRef.current?.querySelector('video');
       if (video && !video.paused && !isLoading && video.readyState >= 3) {
@@ -264,7 +274,6 @@ export const ClapprProxyPlayer = ({
         }
       }
     }, 1000);
-
     return () => clearInterval(checkStuck);
   }, [initPlayer, isLoading, onStuck]);
 
@@ -272,6 +281,7 @@ export const ClapprProxyPlayer = ({
 
   return (
     <div
+      ref={wrapperRef}
       className="relative w-full h-full bg-black overflow-hidden"
       onPointerUpCapture={tryUnmuteFromGesture}
     >
@@ -320,60 +330,56 @@ export const ClapprProxyPlayer = ({
         </div>
       )}
 
-      {/* ✅ সব state এ object-fit: fill force করা হয়েছে */}
       <style>{`
-        #${containerId} [data-player],
-        #${containerId} [data-player] > div,
-        #${containerId} [data-player] > div > div {
+        /* ✅ Step 1: [data-player] কে relative করো — এটাই controls এর anchor */
+        #${containerId} [data-player] {
+          position: relative !important;
           width: 100% !important;
           height: 100% !important;
+          overflow: hidden !important;
         }
 
+        /* ✅ Step 2: video stretch — শুধু এটুকুই */
         #${containerId} video {
+          object-fit: fill !important;
           width: 100% !important;
           height: 100% !important;
-          object-fit: fill !important;
         }
 
-        /* ✅ Normal fullscreen */
+        /* ✅ Step 3: .media-control কে নিচে আটকাও — ভেতরে হাত নেই */
+        #${containerId} .media-control {
+          position: absolute !important;
+          top: auto !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+        }
+
+        /* ✅ Fullscreen — same rules */
+        :fullscreen #${containerId} [data-player],
+        :-webkit-full-screen #${containerId} [data-player],
+        :-moz-full-screen #${containerId} [data-player] {
+          width: 100vw !important;
+          height: 100vh !important;
+        }
+
         :fullscreen #${containerId} video,
-        :fullscreen video {
-          width: 100vw !important;
-          height: 100vh !important;
-          object-fit: fill !important;
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-        }
-
-        /* ✅ webkit fullscreen (Chrome Android, Safari) */
         :-webkit-full-screen #${containerId} video,
-        :-webkit-full-screen video {
+        :-moz-full-screen #${containerId} video {
           width: 100vw !important;
           height: 100vh !important;
           object-fit: fill !important;
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
         }
 
-        /* ✅ moz fullscreen (Firefox) */
-        :-moz-full-screen #${containerId} video,
-        :-moz-full-screen video {
-          width: 100vw !important;
-          height: 100vh !important;
-          object-fit: fill !important;
+        :fullscreen #${containerId} .media-control,
+        :-webkit-full-screen #${containerId} .media-control,
+        :-moz-full-screen #${containerId} .media-control {
           position: fixed !important;
-          top: 0 !important;
+          top: auto !important;
+          bottom: 0 !important;
           left: 0 !important;
-        }
-
-        /* ✅ Clappr fullscreen container fix */
-        :fullscreen [data-player],
-        :-webkit-full-screen [data-player],
-        :-moz-full-screen [data-player] {
-          width: 100vw !important;
-          height: 100vh !important;
+          right: 0 !important;
         }
       `}</style>
     </div>
