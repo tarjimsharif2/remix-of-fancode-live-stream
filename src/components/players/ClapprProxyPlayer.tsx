@@ -34,13 +34,14 @@ export const ClapprProxyPlayer = ({
 }: ClapprProxyPlayerProps) => {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const logoRef = useRef<HTMLImageElement>(null);
-  const logoOriginalParentRef = useRef<HTMLElement | null>(null);
+  const logoRef = useRef<HTMLImageElement>(null);         // ✅ logo ref
+  const logoOriginalParentRef = useRef<HTMLElement>(null); // ✅ original parent track
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isStretched] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // ✅ Fullscreen change — logo move করো
+  // ✅ Fullscreen change handler — logo কে fullscreen element এ নিয়ে যাও
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
@@ -52,16 +53,21 @@ export const ClapprProxyPlayer = ({
         (document as any).mozFullScreenElement;
 
       if (fsElement) {
+        // Fullscreen হলে logo কে fullscreen element এ append করো
         logoOriginalParentRef.current = logo.parentElement as HTMLElement;
         fsElement.appendChild(logo);
+
+        // Fullscreen এ logo style fix
         logo.style.position = 'fixed';
         logo.style.top = '12px';
         logo.style.right = '12px';
-        logo.style.zIndex = '2147483647';
+        logo.style.zIndex = '2147483647'; // সর্বোচ্চ z-index
       } else {
+        // Fullscreen exit হলে original জায়গায় ফেরত দাও
         if (logoOriginalParentRef.current) {
           logoOriginalParentRef.current.appendChild(logo);
         }
+        // Style reset
         logo.style.position = '';
         logo.style.top = '';
         logo.style.right = '';
@@ -132,12 +138,17 @@ export const ClapprProxyPlayer = ({
       player?.configure?.({ mute: false });
       player?.unmute?.();
       player?.setVolume?.(100);
-    } catch {}
+    } catch (err) {
+      console.warn('ClapprProxy unmute failed:', err);
+    }
 
     if (video) {
       video.muted = false;
       video.volume = 1;
-      video.play()?.catch(() => {});
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
     }
   }, []);
 
@@ -205,7 +216,9 @@ export const ClapprProxyPlayer = ({
             setIsLoading(false);
             setError(null);
             onReady?.();
-            requestAnimationFrame(() => tryAutoplayWithUnmute());
+            requestAnimationFrame(() => {
+              tryAutoplayWithUnmute();
+            });
           },
           onPlay: () => {
             setIsLoading(false);
@@ -237,10 +250,15 @@ export const ClapprProxyPlayer = ({
   }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute]);
 
   useEffect(() => {
-    if (scriptLoaded) initPlayer();
+    if (scriptLoaded) {
+      initPlayer();
+    }
+
     return () => {
-      playerRef.current?.destroy();
-      playerRef.current = null;
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
     };
   }, [scriptLoaded, initPlayer]);
 
@@ -254,6 +272,7 @@ export const ClapprProxyPlayer = ({
         if (video.currentTime === lastTime) {
           stuckCount += 1;
           if (stuckCount >= 20) {
+            console.warn('Stream stuck detected. Reloading...');
             onStuck?.();
             initPlayer();
             stuckCount = 0;
@@ -276,6 +295,7 @@ export const ClapprProxyPlayer = ({
       onPointerUpCapture={tryUnmuteFromGesture}
     >
       <div
+        id={`clappr-proxy-container-${containerId}`}
         ref={(el) => {
           playerContainerRef.current = el;
           if (el) el.id = containerId;
@@ -283,6 +303,7 @@ export const ClapprProxyPlayer = ({
         className={cn('w-full h-full', isLoading && 'opacity-0')}
       />
 
+      {/* ✅ logoRef যুক্ত করা হয়েছে */}
       {!error && (
         <img
           ref={logoRef}
@@ -320,60 +341,12 @@ export const ClapprProxyPlayer = ({
         </div>
       )}
 
-      {/* ✅ সব state এ object-fit: fill force করা হয়েছে */}
       <style>{`
-        #${containerId} [data-player],
-        #${containerId} [data-player] > div,
-        #${containerId} [data-player] > div > div {
+        #clappr-proxy-container-${containerId} [data-player] { width: 100% !important; height: 100% !important; }
+        #clappr-proxy-container-${containerId} video {
           width: 100% !important;
           height: 100% !important;
-        }
-
-        #${containerId} video {
-          width: 100% !important;
-          height: 100% !important;
-          object-fit: fill !important;
-        }
-
-        /* ✅ Normal fullscreen */
-        :fullscreen #${containerId} video,
-        :fullscreen video {
-          width: 100vw !important;
-          height: 100vh !important;
-          object-fit: fill !important;
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-        }
-
-        /* ✅ webkit fullscreen (Chrome Android, Safari) */
-        :-webkit-full-screen #${containerId} video,
-        :-webkit-full-screen video {
-          width: 100vw !important;
-          height: 100vh !important;
-          object-fit: fill !important;
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-        }
-
-        /* ✅ moz fullscreen (Firefox) */
-        :-moz-full-screen #${containerId} video,
-        :-moz-full-screen video {
-          width: 100vw !important;
-          height: 100vh !important;
-          object-fit: fill !important;
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-        }
-
-        /* ✅ Clappr fullscreen container fix */
-        :fullscreen [data-player],
-        :-webkit-full-screen [data-player],
-        :-moz-full-screen [data-player] {
-          width: 100vw !important;
-          height: 100vh !important;
+          object-fit: ${isStretched ? 'fill' : 'contain'} !important;
         }
       `}</style>
     </div>
