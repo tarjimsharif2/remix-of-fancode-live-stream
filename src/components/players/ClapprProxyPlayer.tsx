@@ -124,7 +124,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true,
+        mute: true, // ✅ browser autoplay policy মানতে muted শুরু
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -165,7 +165,8 @@ export const ClapprProxyPlayer = ({
             userPausedRef.current = false;
             applyVideoStretch(container);
 
-            // playing শুরু হলে একবারই unmute করো
+            // ✅ video playing থাকা অবস্থায় muted=false করলে
+            // browser block করে না এবং pause ও হয় না
             if (!unmutedOnceRef.current) {
               unmutedOnceRef.current = true;
               const video = container.querySelector('video') as HTMLVideoElement | null;
@@ -200,7 +201,8 @@ export const ClapprProxyPlayer = ({
       const videoWatcher = new MutationObserver(() => {
         const video = container.querySelector('video');
         if (video) {
-          video.muted = true; // সবসময় muted দিয়ে শুরু, onPlay এ unmute হবে
+          // ✅ শুরুতে muted+playsinline নিশ্চিত করো
+          video.muted = true;
           video.playsInline = true;
           applyVideoStretch(container);
           videoWatcher.disconnect();
