@@ -42,8 +42,6 @@ export const ClapprProxyPlayer = ({
   const userPausedRef = useRef(false);
   const hasInteractedRef = useRef(false);
 
-  const storageKey = `player_paused_${btoa(streamUrl).slice(0, 20)}`;
-
   useEffect(() => {
     const handleFullscreenChange = () => {
       const logo = logoRef.current;
@@ -148,7 +146,7 @@ export const ClapprProxyPlayer = ({
     }
   }, []);
 
-  const initPlayer = useCallback((forcePlay = false) => {
+  const initPlayer = useCallback(() => {
     if (!playerContainerRef.current || typeof Clappr === 'undefined') return;
 
     if (playerRef.current) { playerRef.current.destroy(); playerRef.current = null; }
@@ -157,21 +155,8 @@ export const ClapprProxyPlayer = ({
     container.innerHTML = '';
     userPausedRef.current = false;
     hasInteractedRef.current = false;
-
-    // ✅ Retry বাটনে forcePlay=true হলে sessionStorage clear করো
-    if (forcePlay) {
-      sessionStorage.removeItem(storageKey);
-    }
-
     setError(null);
     setIsLoading(true);
-
-    // ✅ initPlayer শুরুতেই check করো — onPlay race condition এড়াতে
-    const wasPaused = sessionStorage.getItem(storageKey) === 'true';
-    if (wasPaused) {
-      userPausedRef.current = true;
-      hasInteractedRef.current = true;
-    }
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     let proxiedSrc = `${supabaseUrl}/functions/v1/stream-proxy?url=${encodeURIComponent(streamUrl)}&t=${Date.now()}`;
@@ -187,9 +172,8 @@ export const ClapprProxyPlayer = ({
         source: proxiedSrc,
         parent: container,
         poster,
-        // ✅ আগে pause ছিলে autoPlay বন্ধ রাখো
-        autoPlay: !wasPaused,
-        mute: !wasPaused,
+        autoPlay: true,
+        mute: true,
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -223,22 +207,17 @@ export const ClapprProxyPlayer = ({
             onReady?.();
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
-            // ✅ wasPaused হলে autoPlay false — কিছু করতে হবে না, poster দেখাবে
-            if (!wasPaused) {
-              requestAnimationFrame(() => tryAutoplayWithUnmute());
-            }
+            requestAnimationFrame(() => tryAutoplayWithUnmute());
           },
           onPlay: () => {
             setIsLoading(false);
             setError(null);
             userPausedRef.current = false;
-            sessionStorage.removeItem(storageKey); // ✅ play হলে clear
             applyVideoStretch(container);
             tryAutoplayWithUnmute();
           },
           onPause: () => {
             userPausedRef.current = true;
-            sessionStorage.setItem(storageKey, 'true'); // ✅ pause হলে save
           },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => {
@@ -273,7 +252,7 @@ export const ClapprProxyPlayer = ({
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute, applyVideoStretch, storageKey]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplayWithUnmute, applyVideoStretch]);
 
   useEffect(() => {
     if (scriptLoaded) initPlayer();
@@ -289,9 +268,7 @@ export const ClapprProxyPlayer = ({
     const checkStuck = setInterval(() => {
       const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
       if (!video) return;
-
       if (userPausedRef.current) return;
-
       if (!video.paused && !isLoading && video.readyState >= 3) {
         if (video.currentTime === lastTime) {
           stuckCount++;
@@ -350,7 +327,7 @@ export const ClapprProxyPlayer = ({
           <h3 className="mb-2 text-lg font-bold text-foreground">Transmission Error</h3>
           <p className="mb-6 max-w-xs text-sm text-muted-foreground">{error}</p>
           <div className="flex flex-wrap justify-center gap-3">
-            <Button onClick={() => initPlayer(true)} size="sm">
+            <Button onClick={initPlayer} size="sm">
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry
             </Button>
