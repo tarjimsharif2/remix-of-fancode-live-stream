@@ -336,10 +336,29 @@ export const ClapprProxyPlayer = ({
 
       <style>{`
         #clappr-proxy-container-${containerId} [data-player] { width: 100% !important; height: 100% !important; }
+        #clappr-proxy-container-${containerId} > div,
+        #clappr-proxy-container-${containerId} > div > div,
+        #clappr-proxy-container-${containerId} > div > div > div {
+          width: 100% !important;
+          height: 100% !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+        }
         #clappr-proxy-container-${containerId} video {
           width: 100% !important;
           height: 100% !important;
           object-fit: ${isStretched ? 'fill' : 'contain'} !important;
+        }
+        :fullscreen #clappr-proxy-container-${containerId},
+        :fullscreen #clappr-proxy-container-${containerId} > div,
+        :fullscreen #clappr-proxy-container-${containerId} > div > div,
+        :-webkit-full-screen #clappr-proxy-container-${containerId},
+        :-webkit-full-screen #clappr-proxy-container-${containerId} > div,
+        :-webkit-full-screen #clappr-proxy-container-${containerId} > div > div {
+          width: 100vw !important;
+          height: 100vh !important;
+          max-width: 100vw !important;
+          max-height: 100vh !important;
         }
         :fullscreen video,
         :-webkit-full-screen video,
