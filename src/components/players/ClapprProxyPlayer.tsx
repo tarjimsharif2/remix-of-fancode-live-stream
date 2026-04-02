@@ -124,7 +124,7 @@ export const ClapprProxyPlayer = ({
         parent: container,
         poster,
         autoPlay: true,
-        mute: true,
+        mute: true, // ✅ muted দিয়ে init — browser autoplay block করবে না
         width: '100%',
         height: '100%',
         mimeType: 'application/x-mpegURL',
@@ -158,6 +158,7 @@ export const ClapprProxyPlayer = ({
             onReady?.();
             setTimeout(() => applyVideoStretch(container), 100);
             setTimeout(() => applyVideoStretch(container), 500);
+            // ✅ mobile এ explicit play() call না দিলে autoPlay কাজ করে না
             setTimeout(() => {
               try { player.play(); } catch (e) {}
             }, 200);
@@ -165,13 +166,13 @@ export const ClapprProxyPlayer = ({
           onPlay: () => {
             setIsLoading(false);
             setError(null);
-            setIsPaused(false); // ✅ play হলে overlay সরাও
+            setIsPaused(false);
             userPausedRef.current = false;
             applyVideoStretch(container);
           },
           onPause: () => {
             userPausedRef.current = true;
-            setIsPaused(true); // ✅ pause হলে overlay দেখাও
+            setIsPaused(true);
           },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => {
@@ -193,12 +194,13 @@ export const ClapprProxyPlayer = ({
 
       playerRef.current = player;
 
+      // ✅ Clappr নিজের API দিয়ে unmute — internal state + UI icon দুটোই আপডেট হবে
       player.on(Clappr.Events.PLAYER_PLAY, () => {
         setTimeout(() => {
-          const video = container.querySelector('video') as HTMLVideoElement | null;
-          if (!video) return;
-          video.muted = false;
-          video.volume = 1;
+          try {
+            player.unmute();        // ✅ Clappr internal state update
+            player.setVolume(100);  // ✅ Clappr volume UI আপডেট
+          } catch (e) {}
         }, 100);
       });
 
@@ -282,7 +284,7 @@ export const ClapprProxyPlayer = ({
         </div>
       )}
 
-      {/* ✅ Pause overlay — click করলে আবার play */}
+      {/* ✅ Pause overlay */}
       {isPaused && !error && !isLoading && (
         <div
           className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 cursor-pointer"
