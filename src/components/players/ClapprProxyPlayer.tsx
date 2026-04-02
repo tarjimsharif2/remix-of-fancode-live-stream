@@ -18,26 +18,27 @@ interface ClapprProxyPlayerProps {
   onStuck?: () => void;
 }
 
-export const ClapprProxyPlayer = ({ 
-  streamUrl, 
-  poster, 
-  referer, 
-  origin, 
+const CLAPPR_PROXY_LOGO_URL = 'https://i.ibb.co/Q3rp8ZXs/20260203-180035-0000.png';
+
+export const ClapprProxyPlayer = ({
+  streamUrl,
+  poster,
+  referer,
+  origin,
   userAgent,
   cookie,
   customHeaders,
   onError,
   onReady,
-  onStuck 
+  onStuck,
 }: ClapprProxyPlayerProps) => {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isStretched, setIsStretched] = useState(true);
+  const [isStretched] = useState(true);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
-  // Load Clappr from CDN if not already loaded
   useEffect(() => {
     if (typeof Clappr !== 'undefined') {
       setScriptLoaded(true);
@@ -53,29 +54,69 @@ export const ClapprProxyPlayer = ({
       setIsLoading(false);
     };
     document.head.appendChild(script);
+  }, []);
 
-    return () => {
-      // Don't remove script on unmount - it can be reused
-    };
+  const tryAutoplay = useCallback(() => {
+    const player = playerRef.current;
+    const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
+
+    try {
+      player?.configure?.({ mute: true });
+      player?.mute?.();
+      player?.play?.();
+    } catch (err) {
+      console.warn('ClapprProxy autoplay failed:', err);
+    }
+
+    if (video) {
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((err) => {
+          console.warn('ClapprProxy video autoplay failed:', err);
+        });
+      }
+    }
+  }, []);
+
+  const tryUnmuteFromGesture = useCallback(() => {
+    const player = playerRef.current;
+    const video = playerContainerRef.current?.querySelector('video') as HTMLVideoElement | null;
+
+    try {
+      player?.configure?.({ mute: false });
+      player?.unmute?.();
+      player?.setVolume?.(100);
+    } catch (err) {
+      console.warn('ClapprProxy unmute failed:', err);
+    }
+
+    if (video) {
+      video.muted = false;
+      video.volume = 1;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
+    }
   }, []);
 
   const initPlayer = useCallback(() => {
     if (!playerContainerRef.current || typeof Clappr === 'undefined') return;
 
-    // Cleanup existing player
     if (playerRef.current) {
       playerRef.current.destroy();
       playerRef.current = null;
     }
 
-    // Clear container
     const container = playerContainerRef.current;
     container.innerHTML = '';
 
     setError(null);
     setIsLoading(true);
 
-    // Build proxied URL using the edge function
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     let proxiedSrc = `${supabaseUrl}/functions/v1/stream-proxy?url=${encodeURIComponent(streamUrl)}&t=${Date.now()}`;
     if (referer) proxiedSrc += `&referer=${encodeURIComponent(referer)}`;
@@ -90,16 +131,16 @@ export const ClapprProxyPlayer = ({
       const player = new Clappr.Player({
         source: proxiedSrc,
         parent: container,
+        poster,
         autoPlay: true,
         mute: true,
-        width: "100%",
-        height: "100%",
-        mimeType: "application/x-mpegURL",
-        watermark: "https://i.ibb.co/Q3rp8ZXs/20260203-180035-0000.png",
-        watermarkLink: "",
-        position: "top-right",
+        width: '100%',
+        height: '100%',
+        mimeType: 'application/x-mpegURL',
+        disableVideoTagContextMenu: true,
         playback: {
           playInline: true,
+          recycleVideo: true,
           hlsjsConfig: {
             enableWorker: true,
             lowLatencyMode: false,
@@ -118,23 +159,22 @@ export const ClapprProxyPlayer = ({
             levelLoadingMaxRetry: 10,
             xhrSetup: (xhr: XMLHttpRequest) => {
               xhr.withCredentials = false;
-            }
-          }
+            },
+          },
         },
         events: {
-          onReady: function() { 
-            setIsLoading(false); 
-            setError(null); 
-            onReady?.(); 
-            // Force play and unmute after ready
-            try {
-              player.play();
-              player.once(Clappr.Events.PLAYER_PLAY, () => {
-                player.configure({ mute: false });
-              });
-            } catch(e) { console.warn('Autoplay attempt:', e); }
+          onReady: () => {
+            setIsLoading(false);
+            setError(null);
+            onReady?.();
+            requestAnimationFrame(() => {
+              tryAutoplay();
+            });
           },
-          onPlay: () => { setIsLoading(false); setError(null); },
+          onPlay: () => {
+            setIsLoading(false);
+            setError(null);
+          },
           onBuffer: () => setIsLoading(true),
           onBufferFull: () => setIsLoading(false),
           onError: (err: any) => {
@@ -147,22 +187,23 @@ export const ClapprProxyPlayer = ({
               setTimeout(() => initPlayer(), 3000);
             }
             onStuck?.();
-          }
-        }
+          },
+        },
       });
+
       playerRef.current = player;
     } catch (err) {
       console.error('ClapprProxy init error:', err);
       setError('Could not initialize player.');
       setIsLoading(false);
     }
-  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, onStuck, onError, onReady]);
+  }, [streamUrl, referer, origin, userAgent, cookie, customHeaders, poster, onError, onReady, onStuck, tryAutoplay]);
 
-  // Initialize when script is loaded
   useEffect(() => {
     if (scriptLoaded) {
       initPlayer();
     }
+
     return () => {
       if (playerRef.current) {
         playerRef.current.destroy();
@@ -171,7 +212,6 @@ export const ClapprProxyPlayer = ({
     };
   }, [scriptLoaded, initPlayer]);
 
-  // Stuck detection
   useEffect(() => {
     let lastTime = 0;
     let stuckCount = 0;
@@ -180,7 +220,7 @@ export const ClapprProxyPlayer = ({
       const video = playerContainerRef.current?.querySelector('video');
       if (video && !video.paused && !isLoading && video.readyState >= 3) {
         if (video.currentTime === lastTime) {
-          stuckCount++;
+          stuckCount += 1;
           if (stuckCount >= 20) {
             console.warn('Stream stuck detected. Reloading...');
             onStuck?.();
@@ -200,32 +240,43 @@ export const ClapprProxyPlayer = ({
   const containerId = useRef(`cp-${Math.random().toString(36).slice(2, 8)}`).current;
 
   return (
-    <div className="relative w-full h-full bg-black overflow-hidden">
-      <div 
+    <div
+      className="relative w-full h-full bg-black overflow-hidden"
+      onPointerUpCapture={tryUnmuteFromGesture}
+    >
+      <div
         id={`clappr-proxy-container-${containerId}`}
         ref={(el) => {
-          (playerContainerRef as any).current = el;
+          playerContainerRef.current = el;
           if (el) el.id = containerId;
         }}
-        className={cn("w-full h-full", isLoading && "opacity-0")}
+        className={cn('w-full h-full', isLoading && 'opacity-0')}
       />
 
-      {/* Loading */}
+      {!error && (
+        <img
+          src={CLAPPR_PROXY_LOGO_URL}
+          alt="Player logo"
+          className="pointer-events-none absolute right-3 top-3 z-30 w-14 select-none sm:w-16"
+          decoding="async"
+          loading="eager"
+        />
+      )}
+
       {isLoading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black">
-          <div className="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-white" />
         </div>
       )}
 
-      {/* Error */}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black p-8 text-center z-20">
-          <AlertCircle className="w-10 h-10 text-destructive mb-3" />
-          <h3 className="text-lg font-bold text-foreground mb-2">Transmission Error</h3>
-          <p className="text-sm text-muted-foreground mb-6 max-w-xs">{error}</p>
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black p-8 text-center">
+          <AlertCircle className="mb-3 h-10 w-10 text-destructive" />
+          <h3 className="mb-2 text-lg font-bold text-foreground">Transmission Error</h3>
+          <p className="mb-6 max-w-xs text-sm text-muted-foreground">{error}</p>
           <div className="flex flex-wrap justify-center gap-3">
             <Button onClick={initPlayer} size="sm">
-              <RefreshCw className="w-4 h-4 mr-2" />
+              <RefreshCw className="mr-2 h-4 w-4" />
               Retry
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.history.back()}>
@@ -245,7 +296,6 @@ export const ClapprProxyPlayer = ({
           height: 100% !important;
           object-fit: ${isStretched ? 'fill' : 'contain'} !important;
         }
-        .clappr-watermark { display: none !important; }
       `}</style>
     </div>
   );
