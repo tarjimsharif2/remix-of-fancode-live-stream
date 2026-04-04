@@ -1,9 +1,9 @@
-name: Build Dist
+name: Build Dist for cPanel
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: # মোবাইল থেকে manually trigger করতে পারবেন
+  workflow_dispatch:
 
 jobs:
   build:
