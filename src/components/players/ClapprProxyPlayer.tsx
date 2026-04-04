@@ -314,9 +314,6 @@ export const ClapprProxyPlayer = ({
             <Button variant="outline" size="sm" onClick={() => window.history.back()}>
               Go Back
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => window.open(streamUrl, '_blank')}>
-              Open Link
-            </Button>
           </div>
         </div>
       )}
