@@ -30,6 +30,7 @@ import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
+import { ShakaPlayer } from "@/components/players/ShakaPlayer";
 
 interface QualityLevel {
   id: number;
