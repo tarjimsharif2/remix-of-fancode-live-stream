@@ -15,6 +15,7 @@ import { ClapprPlayer } from "./ClapprPlayer";
 import { ClapprProxyPlayer } from "./ClapprProxyPlayer";
 import { HlsJsPlayer } from "./HlsJsPlayer";
 import { IframePlayer } from "./IframePlayer";
+import { ShakaPlayer } from "./ShakaPlayer";
 import { PlayerType, PLAYER_CONFIGS, getPlayerConfig } from "@/types/playerTypes";
 import { StreamLink } from "@/utils/streamExtractor";
 import { cn } from "@/lib/utils";
@@ -153,6 +154,8 @@ export const UniversalPlayer = ({
             title={title}
           />
         );
+      case 'shaka':
+        return <ShakaPlayer key={playerKey} streamUrl={currentStream.url} title={title} />;
       case 'native':
         return (
           <video

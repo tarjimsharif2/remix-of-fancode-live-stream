@@ -1,4 +1,4 @@
-export type PlayerType = 'clappr' | 'clappr-proxy' | 'hlsjs' | 'iframe' | 'native';
+export type PlayerType = 'clappr' | 'clappr-proxy' | 'hlsjs' | 'iframe' | 'native' | 'shaka';
 
 export interface PlayerConfig {
   type: PlayerType;
@@ -37,6 +37,12 @@ export const PLAYER_CONFIGS: PlayerConfig[] = [
     label: 'Native',
     description: 'Browser native video player',
     icon: '▶️',
+  },
+  {
+    type: 'shaka',
+    label: 'Shaka (DRM)',
+    description: 'DRM-supported player for MPD/DASH streams',
+    icon: '🔐',
   },
 ];
 

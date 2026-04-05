@@ -30,6 +30,7 @@ import { ClapprPlayer } from "@/components/players/ClapprPlayer";
 import { ClapprProxyPlayer } from "@/components/players/ClapprProxyPlayer";
 import { HlsJsPlayer } from "@/components/players/HlsJsPlayer";
 import { IframePlayer } from "@/components/players/IframePlayer";
+import { ShakaPlayer } from "@/components/players/ShakaPlayer";
 
 interface QualityLevel {
   id: number;
@@ -625,6 +626,8 @@ const MyPlayWatch = () => {
         />
       ) : effectivePlayerType === 'iframe' ? (
         <IframePlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
+      ) : effectivePlayerType === 'shaka' ? (
+        <ShakaPlayer key={playerKey} streamUrl={channel.stream_url} title={channel.name} />
       ) : effectivePlayerType === 'native' ? (
         <video key={playerKey} src={channel.stream_url} className="w-full h-full" controls autoPlay playsInline />
       ) : (
