@@ -154,6 +154,8 @@ export const UniversalPlayer = ({
             title={title}
           />
         );
+      case 'shaka':
+        return <ShakaPlayer key={playerKey} streamUrl={currentStream.url} title={title} />;
       case 'native':
         return (
           <video

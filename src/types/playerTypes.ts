@@ -38,6 +38,12 @@ export const PLAYER_CONFIGS: PlayerConfig[] = [
     description: 'Browser native video player',
     icon: '▶️',
   },
+  {
+    type: 'shaka',
+    label: 'Shaka (DRM)',
+    description: 'DRM-supported player for MPD/DASH streams',
+    icon: '🔐',
+  },
 ];
 
 export const getPlayerConfig = (type: PlayerType): PlayerConfig => {
