@@ -13,10 +13,6 @@ interface ShakaPlayerProps {
   title?: string;
 }
 
-/**
- * Parses stream URL with DRM info.
- * Format: url|drmScheme=clearkey&drmLicense=keyId:key
- */
 function parseShakaUrl(raw: string): {
   url: string;
   drm: Record<string, any> | null;
@@ -97,7 +93,7 @@ export const ShakaPlayer = ({ streamUrl, title }: ShakaPlayerProps) => {
       return;
     }
 
-    // Cleanup previous
+    // Cleanup previous instance
     if (playerRef.current) {
       try {
         await playerRef.current.destroy();
@@ -172,6 +168,22 @@ export const ShakaPlayer = ({ streamUrl, title }: ShakaPlayerProps) => {
       });
 
       await player.load(url);
+
+      // ✅ Autoplay fix: muted দিয়ে play করে সাথে সাথে unmute
+      video.muted = true;
+      try {
+        await video.play();
+        video.muted = false;
+      } catch {
+        // Unmute করেও না হলে muted রেখেই চালু রাখো
+        video.muted = true;
+        try {
+          await video.play();
+        } catch (playErr) {
+          console.warn("Autoplay blocked:", playErr);
+        }
+      }
+
       setIsLoading(false);
       console.log(`✅ Shaka loaded: ${title || url}`);
     } catch (err: any) {
@@ -248,7 +260,10 @@ export const ShakaPlayer = ({ streamUrl, title }: ShakaPlayerProps) => {
         <video
           ref={videoRef}
           autoPlay
+          muted         // ✅ Browser policy মানতে muted দিয়ে শুরু
           playsInline
+          preload="metadata"
+          poster="https://cdn2.eplayhd.com/icon/eplaylogo.webp"
           className="w-full h-full bg-black object-contain"
           style={{ width: "100%", height: "100%" }}
         />
