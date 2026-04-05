@@ -1,4 +1,4 @@
-export type PlayerType = 'clappr' | 'clappr-proxy' | 'hlsjs' | 'iframe' | 'native';
+export type PlayerType = 'clappr' | 'clappr-proxy' | 'hlsjs' | 'iframe' | 'native' | 'shaka';
 
 export interface PlayerConfig {
   type: PlayerType;
