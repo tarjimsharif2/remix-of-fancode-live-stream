@@ -175,7 +175,6 @@ export const ShakaPlayer = ({ streamUrl, title }: ShakaPlayerProps) => {
         await video.play();
         video.muted = false;
       } catch {
-        // Unmute করেও না হলে muted রেখেই চালু রাখো
         video.muted = true;
         try {
           await video.play();
@@ -206,14 +205,6 @@ export const ShakaPlayer = ({ streamUrl, title }: ShakaPlayerProps) => {
 
   return (
     <div className="relative w-full h-full bg-black">
-      {/* Logo overlay */}
-      <img
-        src="https://i.ibb.co/Q3rp8ZXs/20260203-180035-0000.png"
-        alt=""
-        className="absolute top-2 right-2 z-[100] w-16 sm:w-20 opacity-80 pointer-events-none"
-        style={{ filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.5))" }}
-      />
-
       {/* Loading */}
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
@@ -257,10 +248,26 @@ export const ShakaPlayer = ({ streamUrl, title }: ShakaPlayerProps) => {
         className="absolute inset-0 w-full h-full shaka-video-container"
         data-shaka-player
       >
+        {/* ✅ লোগো container-এর ভেতরে — fullscreen-এও দেখা যাবে */}
+        <img
+          src="https://i.ibb.co/Q3rp8ZXs/20260203-180035-0000.png"
+          alt=""
+          style={{
+            position: "absolute",
+            top: "12px",
+            right: "12px",
+            zIndex: 2147483647,
+            width: "70px",
+            opacity: 0.85,
+            pointerEvents: "none",
+            filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.5))",
+          }}
+        />
+
         <video
           ref={videoRef}
           autoPlay
-          muted         // ✅ Browser policy মানতে muted দিয়ে শুরু
+          muted
           playsInline
           preload="metadata"
           poster="https://cdn2.eplayhd.com/icon/eplaylogo.webp"
