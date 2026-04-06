@@ -85,6 +85,7 @@ export type Database = {
           is_active: boolean
           logo_url: string | null
           name: string
+          note: string | null
           player_type: string | null
           slug: string
           stream_url: string
@@ -103,6 +104,7 @@ export type Database = {
           is_active?: boolean
           logo_url?: string | null
           name: string
+          note?: string | null
           player_type?: string | null
           slug: string
           stream_url: string
@@ -121,6 +123,7 @@ export type Database = {
           is_active?: boolean
           logo_url?: string | null
           name?: string
+          note?: string | null
           player_type?: string | null
           slug?: string
           stream_url?: string

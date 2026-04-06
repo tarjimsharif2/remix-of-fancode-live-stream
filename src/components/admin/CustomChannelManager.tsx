@@ -47,7 +47,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Plus, Trash2, Edit, Tv, Settings2 } from "lucide-react";
+import { Plus, Trash2, Edit, Tv, Settings2, Copy, ExternalLink } from "lucide-react";
 import { CustomChannel } from "@/types/customChannel";
 
 interface ChannelForm {
@@ -56,6 +56,7 @@ interface ChannelForm {
   logo_url: string;
   category: string;
   player_type: string;
+  note: string;
   custom_referer: string;
   custom_origin: string;
   custom_user_agent: string;
@@ -70,6 +71,7 @@ const defaultForm: ChannelForm = {
   logo_url: "",
   category: "general",
   player_type: "hlsjs",
+  note: "",
   custom_referer: "",
   custom_origin: "",
   custom_user_agent: "",
@@ -119,6 +121,7 @@ export function CustomChannelManager() {
         logo_url: channel.logo_url || "",
         category: channel.category || "general",
         player_type: channel.player_type || "hlsjs",
+        note: channel.note || "",
         custom_referer: channel.custom_referer || "",
         custom_origin: channel.custom_origin || "",
         custom_user_agent: channel.custom_user_agent || "",
@@ -215,6 +218,7 @@ export function CustomChannelManager() {
       logo_url: form.logo_url.trim() || null,
       category: form.category.trim() || "general",
       player_type: form.player_type || "hlsjs",
+      note: form.note.trim() || null,
       custom_referer: form.custom_referer.trim() || null,
       custom_origin: form.custom_origin.trim() || null,
       custom_user_agent: form.custom_user_agent.trim() || null,
@@ -303,41 +307,29 @@ export function CustomChannelManager() {
       ) : (
         <div className="border rounded-lg">
           <Table>
-            <TableHeader>
+           <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead>Note</TableHead>
                 <TableHead>Category</TableHead>
-                <TableHead>Headers</TableHead>
                 <TableHead>Active</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {channels.map((channel) => (
+              {channels.map((channel) => {
+                const channelUrl = `${window.location.origin}/myplay/watch?id=${channel.slug}`;
+                return (
                 <TableRow key={channel.id}>
                   <TableCell className="font-medium">{channel.name}</TableCell>
-                  <TableCell className="capitalize">{channel.category}</TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {channel.custom_referer && (
-                        <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">Referer</span>
-                      )}
-                      {channel.custom_origin && (
-                        <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Origin</span>
-                      )}
-                      {channel.custom_user_agent && (
-                        <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">UA</span>
-                      )}
-                      {channel.custom_cookie && (
-                        <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">Cookie</span>
-                      )}
-                      {Object.keys(channel.custom_headers || {}).length > 0 && (
-                        <span className="text-xs bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded">
-                          +{Object.keys(channel.custom_headers).length}
-                        </span>
-                      )}
-                    </div>
+                    {channel.note ? (
+                      <span className="text-xs text-muted-foreground line-clamp-2">{channel.note}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/50">—</span>
+                    )}
                   </TableCell>
+                  <TableCell className="capitalize">{channel.category}</TableCell>
                   <TableCell>
                     <Switch
                       checked={channel.is_active}
@@ -345,7 +337,26 @@ export function CustomChannelManager() {
                     />
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Play"
+                        onClick={() => window.open(`/myplay/watch?id=${channel.slug}`, '_blank')}
+                      >
+                        <ExternalLink className="w-4 h-4 text-primary" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Copy Link"
+                        onClick={() => {
+                          navigator.clipboard.writeText(channelUrl);
+                          toast({ title: "Copied!", description: channelUrl });
+                        }}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -377,7 +388,8 @@ export function CustomChannelManager() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -467,6 +479,20 @@ export function CustomChannelManager() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Note */}
+            <div className="space-y-2">
+              <Label htmlFor="note">Note (Admin only)</Label>
+              <Input
+                id="note"
+                value={form.note}
+                onChange={(e) => setForm({ ...form, note: e.target.value })}
+                placeholder="e.g., IPL 2026, T20 World Cup"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tournament/event info — only visible in admin panel
+              </p>
             </div>
 
             <Accordion type="single" collapsible defaultValue="headers">
