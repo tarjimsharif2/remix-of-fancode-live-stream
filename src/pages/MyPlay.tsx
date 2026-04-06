@@ -15,7 +15,7 @@ const MyPlay = () => {
   const navigate = useNavigate();
 
   const handleWatch = (channel: CustomChannel) => {
-    navigate(`/myplay/watch?id=${channel.id}`);
+    navigate(`/myplay/watch?id=${channel.slug}`);
   };
 
   // Filter channels by search query

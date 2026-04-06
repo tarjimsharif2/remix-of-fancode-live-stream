@@ -171,11 +171,46 @@ export function CustomChannelManager() {
     return true;
   };
 
+  // Generate slug from name
+  const generateSlug = async (name: string, excludeId?: string): Promise<string> => {
+    const baseSlug = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'channel';
+
+    // Check existing slugs
+    let query = supabase
+      .from('custom_channels')
+      .select('slug')
+      .like('slug', `${baseSlug}%`);
+
+    if (excludeId) {
+      query = query.neq('id', excludeId);
+    }
+
+    const { data } = await query;
+    const existingSlugs = new Set((data || []).map((d: any) => d.slug));
+
+    if (!existingSlugs.has(baseSlug)) return baseSlug;
+
+    let counter = 1;
+    while (existingSlugs.has(`${baseSlug}-${counter}`)) {
+      counter++;
+    }
+    return `${baseSlug}-${counter}`;
+  };
+
   const handleSave = async () => {
     if (!validateForm()) return;
 
+    const slug = await generateSlug(form.name.trim(), editingChannel?.id);
+
     const channelData = {
       name: form.name.trim(),
+      slug,
       stream_url: form.stream_url.trim(),
       logo_url: form.logo_url.trim() || null,
       category: form.category.trim() || "general",

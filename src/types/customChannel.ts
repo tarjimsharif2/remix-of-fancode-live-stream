@@ -1,6 +1,7 @@
 export interface CustomChannel {
   id: string;
   name: string;
+  slug: string;
   stream_url: string;
   logo_url: string | null;
   category: string;
