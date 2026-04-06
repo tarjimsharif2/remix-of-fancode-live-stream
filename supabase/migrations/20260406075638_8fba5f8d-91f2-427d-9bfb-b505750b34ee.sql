@@ -1,0 +1,1 @@
+ALTER TABLE public.custom_channels ADD COLUMN note text;
