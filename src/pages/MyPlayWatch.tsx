@@ -78,12 +78,22 @@ const MyPlayWatch = () => {
     }
 
     try {
-      const { data, error: fetchError } = await supabase
+      // Try slug first, fallback to id for backward compatibility
+      let query = supabase
         .from('custom_channels')
         .select('*')
-        .eq('id', channelId)
-        .eq('is_active', true)
-        .single();
+        .eq('is_active', true);
+
+      // Check if it's a UUID format
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId);
+      
+      if (isUuid) {
+        query = query.eq('id', channelId);
+      } else {
+        query = query.eq('slug', channelId);
+      }
+
+      const { data, error: fetchError } = await query.single();
 
       if (fetchError) {
         if (fetchError.code === 'PGRST116') {
