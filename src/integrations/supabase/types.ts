@@ -86,6 +86,7 @@ export type Database = {
           logo_url: string | null
           name: string
           player_type: string | null
+          slug: string
           stream_url: string
           updated_at: string
         }
@@ -103,6 +104,7 @@ export type Database = {
           logo_url?: string | null
           name: string
           player_type?: string | null
+          slug: string
           stream_url: string
           updated_at?: string
         }
@@ -120,6 +122,7 @@ export type Database = {
           logo_url?: string | null
           name?: string
           player_type?: string | null
+          slug?: string
           stream_url?: string
           updated_at?: string
         }
