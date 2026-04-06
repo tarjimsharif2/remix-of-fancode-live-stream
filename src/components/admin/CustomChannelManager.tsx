@@ -481,6 +481,20 @@ export function CustomChannelManager() {
               </Select>
             </div>
 
+            {/* Note */}
+            <div className="space-y-2">
+              <Label htmlFor="note">Note (Admin only)</Label>
+              <Input
+                id="note"
+                value={form.note}
+                onChange={(e) => setForm({ ...form, note: e.target.value })}
+                placeholder="e.g., IPL 2026, T20 World Cup"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tournament/event info — only visible in admin panel
+              </p>
+            </div>
+
             <Accordion type="single" collapsible defaultValue="headers">
               <AccordionItem value="headers">
                 <AccordionTrigger className="text-sm font-medium">
