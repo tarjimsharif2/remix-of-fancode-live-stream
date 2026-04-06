@@ -47,7 +47,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Plus, Trash2, Edit, Tv, Settings2 } from "lucide-react";
+import { Plus, Trash2, Edit, Tv, Settings2, Copy, ExternalLink } from "lucide-react";
 import { CustomChannel } from "@/types/customChannel";
 
 interface ChannelForm {
@@ -56,6 +56,7 @@ interface ChannelForm {
   logo_url: string;
   category: string;
   player_type: string;
+  note: string;
   custom_referer: string;
   custom_origin: string;
   custom_user_agent: string;
@@ -70,6 +71,7 @@ const defaultForm: ChannelForm = {
   logo_url: "",
   category: "general",
   player_type: "hlsjs",
+  note: "",
   custom_referer: "",
   custom_origin: "",
   custom_user_agent: "",

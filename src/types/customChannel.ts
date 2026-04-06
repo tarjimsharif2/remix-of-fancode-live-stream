@@ -12,6 +12,7 @@ export interface CustomChannel {
   custom_cookie: string | null;
   custom_headers: Record<string, string>;
   is_active: boolean;
+  note: string | null;
   display_order: number;
   created_at: string;
   updated_at: string;
