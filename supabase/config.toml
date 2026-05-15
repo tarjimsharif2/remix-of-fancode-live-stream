@@ -1,1 +1,25 @@
 project_id = "zhjkzrfkdwsmqbjgzjyx"
+
+[functions.fetch-matches]
+verify_jwt = false
+
+[functions.fetch-crichd-channels]
+verify_jwt = false
+
+[functions.fetch-json-source]
+verify_jwt = false
+
+[functions.fetch-m3u-playlist]
+verify_jwt = false
+
+[functions.fetch-youtube-m3u8]
+verify_jwt = false
+
+[functions.fetch-ayna-json]
+verify_jwt = false
+
+[functions.get-allowed-domains]
+verify_jwt = false
+
+[functions.stream-proxy]
+verify_jwt = false
